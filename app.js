@@ -36,6 +36,7 @@ const state = {
   authMode: "signin",
   authSubmitting: false,
   captchaWidgetId: null,
+  pendingConfirmationEmail: "",
   loading: false,
 };
 
@@ -97,6 +98,10 @@ const el = {
   authSubmitBtn: document.querySelector("#authSubmitBtn"),
   authSwitchBtn: document.querySelector("#authSwitchBtn"),
   closeAuthDialogBtn: document.querySelector("#closeAuthDialogBtn"),
+  emailConfirmationDialog: document.querySelector("#emailConfirmationDialog"),
+  confirmationEmail: document.querySelector("#confirmationEmail"),
+  closeEmailConfirmationBtn: document.querySelector("#closeEmailConfirmationBtn"),
+  confirmationSignInBtn: document.querySelector("#confirmationSignInBtn"),
   accountDialog: document.querySelector("#accountDialog"),
   accountEmail: document.querySelector("#accountEmail"),
   closeAccountBtn: document.querySelector("#closeAccountBtn"),
@@ -944,6 +949,80 @@ function getCaptchaToken() {
   }
 }
 
+function isLocalDevelopmentHost(hostname = window.location.hostname) {
+  return ["localhost", "127.0.0.1", "::1"].includes(hostname);
+}
+
+function getEmailConfirmationRedirectUrl() {
+  const configuredAppUrl = String(config.APP_URL || "").trim();
+  const fallback = window.location.origin;
+  let url;
+
+  try {
+    url = new URL(configuredAppUrl || fallback);
+  } catch {
+    url = new URL(fallback);
+  }
+
+  if (url.protocol !== "https:" && !isLocalDevelopmentHost(url.hostname)) {
+    throw new Error("The email confirmation redirect must use HTTPS.");
+  }
+
+  url.pathname = "/";
+  url.search = "";
+  url.hash = "";
+  return url.toString();
+}
+
+function showEmailConfirmationDialog(email) {
+  state.pendingConfirmationEmail = email;
+  if (el.authDialog.open) el.authDialog.close();
+  el.confirmationEmail.textContent = email;
+  if (!el.emailConfirmationDialog.open) el.emailConfirmationDialog.showModal();
+}
+
+function openSignInFromConfirmation() {
+  const email = state.pendingConfirmationEmail;
+  if (el.emailConfirmationDialog.open) el.emailConfirmationDialog.close();
+  openAuthDialog();
+  if (email) el.authEmail.value = email;
+}
+
+function getAuthReturnParams() {
+  const query = new URLSearchParams(window.location.search);
+  const hash = new URLSearchParams(window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash);
+  const read = (key) => query.get(key) || hash.get(key) || "";
+  return {
+    code: read("code"),
+    accessToken: read("access_token"),
+    error: read("error"),
+    errorCode: read("error_code"),
+    errorDescription: read("error_description"),
+  };
+}
+
+function cleanAuthReturnUrl() {
+  if (!window.history?.replaceState) return;
+  window.history.replaceState({}, document.title, window.location.pathname);
+}
+
+function handleAuthReturnError() {
+  const result = getAuthReturnParams();
+  if (!result.error && !result.errorCode) return false;
+
+  const rawDescription = result.errorDescription || "The email confirmation link is invalid or has expired.";
+  let description = rawDescription.replaceAll("+", " ");
+  try { description = decodeURIComponent(description); } catch {}
+
+  cleanAuthReturnUrl();
+  openAuthDialog();
+  el.authMessage.textContent = result.errorCode === "otp_expired"
+    ? "That email confirmation link is invalid or has expired. Use the newest confirmation email, or create the account again to request a fresh link."
+    : description;
+  showToast(el.authMessage.textContent, "error");
+  return true;
+}
+
 function setAuthMode(mode) {
   state.authMode = mode;
   const signingUp = mode === "signup";
@@ -1024,13 +1103,15 @@ async function handleAuthSubmit(event) {
       const { data, error } = await supabaseClient.auth.signUp({
         email,
         password,
-        options: { captchaToken },
+        options: {
+          captchaToken,
+          emailRedirectTo: getEmailConfirmationRedirectUrl(),
+        },
       });
       if (error) throw error;
       if (!data.session) {
-        el.authMessage.textContent = "Account created. Check your email to confirm it, then sign in.";
-        setAuthMode("signin");
-        el.authEmail.value = email;
+        showEmailConfirmationDialog(email);
+        showToast("Account created. Confirm your email to finish setup.");
         return;
       }
     } else {
@@ -1045,6 +1126,7 @@ async function handleAuthSubmit(event) {
     }
 
     el.authDialog.close();
+    if (el.emailConfirmationDialog?.open) el.emailConfirmationDialog.close();
     showToast(state.authMode === "signup" ? "Account created and signed in." : "Signed in successfully.");
   } catch (error) {
     if (state.authMode === "signin" && isInvalidCredentialError(error)) {
@@ -1929,9 +2011,18 @@ async function initAuth() {
     return;
   }
 
+  const authReturn = getAuthReturnParams();
+  const hadAuthReturn = Boolean(authReturn.code || authReturn.accessToken);
+  if (handleAuthReturnError()) return;
+
   setSyncStatus("Checking session…", "loading");
   const { data } = await supabaseClient.auth.getSession();
   state.user = data.session?.user || null;
+
+  if (hadAuthReturn && state.user) {
+    cleanAuthReturnUrl();
+    showToast("Email confirmed successfully. You are now signed in.");
+  }
 
   if (state.user) {
     const lastActivityAt = getLastActivityAt();
@@ -2022,6 +2113,8 @@ function init() {
   el.authPassword.addEventListener("input", updatePasswordRequirements);
   el.authSwitchBtn.addEventListener("click", () => setAuthMode(state.authMode === "signin" ? "signup" : "signin"));
   el.closeAuthDialogBtn.addEventListener("click", () => el.authDialog.close());
+  el.closeEmailConfirmationBtn.addEventListener("click", () => el.emailConfirmationDialog.close());
+  el.confirmationSignInBtn.addEventListener("click", openSignInFromConfirmation);
   el.closeAccountBtn.addEventListener("click", () => el.accountDialog.close());
   el.signOutBtn.addEventListener("click", signOut);
 

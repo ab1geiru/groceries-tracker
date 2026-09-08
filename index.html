@@ -3,6 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script>
+    // Production is HTTPS-only. Localhost/127.0.0.1 remain available for local development.
+    (() => {
+      const localHosts = new Set(["localhost", "127.0.0.1", "::1"]);
+      if (window.location.protocol === "http:" && !localHosts.has(window.location.hostname)) {
+        window.location.replace(`https://${window.location.host}${window.location.pathname}${window.location.search}${window.location.hash}`);
+      }
+    })();
+  </script>
   <meta name="theme-color" content="#ffaf00" />
   <meta name="description" content="A simple Philippine peso grocery expense tracker." />
   <title>Groceries Tracker</title>
@@ -233,6 +242,24 @@
 
       <button class="button button-primary auth-submit" id="authSubmitBtn" type="submit">Sign in</button>
       <button class="link-button auth-switch" id="authSwitchBtn" type="button">Create an account instead</button>
+    </form>
+  </dialog>
+
+  <dialog id="emailConfirmationDialog" class="confirm-dialog email-confirmation-dialog">
+    <form method="dialog">
+      <div class="confirm-icon email-confirmation-icon" aria-hidden="true">✉</div>
+      <p class="eyebrow">Almost there</p>
+      <h2>Confirm your email</h2>
+      <p class="confirmation-copy">We sent a confirmation link to <strong id="confirmationEmail"></strong>.</p>
+      <p class="account-note">Open the newest email from Groceries Tracker and click the confirmation link. After confirmation, you will be returned securely to this app.</p>
+      <div class="confirmation-security-note">
+        <strong>Security note</strong>
+        <span>Only continue on <code>https://groceries-tracker-miks-n-clar.vercel.app</code>. Never enter your password on a different domain.</span>
+      </div>
+      <div class="confirm-actions">
+        <button class="button button-ghost" id="closeEmailConfirmationBtn" type="button">Close</button>
+        <button class="button button-primary" id="confirmationSignInBtn" type="button">Go to sign in</button>
+      </div>
     </form>
   </dialog>
 

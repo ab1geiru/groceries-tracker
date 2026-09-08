@@ -1378,3 +1378,44 @@ html { scroll-behavior: smooth; }
 @media (max-width: 420px) {
   .password-requirements ul { grid-template-columns: 1fr; }
 }
+
+
+/* Email confirmation + HTTPS security notice */
+.email-confirmation-dialog {
+  width: min(560px, calc(100vw - 32px));
+}
+.email-confirmation-dialog form {
+  padding: 30px;
+}
+.email-confirmation-icon {
+  background: var(--surface-soft);
+  color: var(--accent-dark);
+}
+.confirmation-copy {
+  margin: 8px 0 10px;
+  color: var(--text);
+  line-height: 1.6;
+}
+.confirmation-copy strong {
+  overflow-wrap: anywhere;
+}
+.confirmation-security-note {
+  display: grid;
+  gap: 5px;
+  margin: 18px 0 22px;
+  padding: 14px 16px;
+  border: 1px solid #f1d78f;
+  border-radius: 14px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-size: .84rem;
+  line-height: 1.5;
+}
+.confirmation-security-note strong {
+  color: var(--text);
+}
+.confirmation-security-note code {
+  color: var(--text);
+  font-size: .78rem;
+  overflow-wrap: anywhere;
+}

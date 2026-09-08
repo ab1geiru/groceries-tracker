@@ -158,3 +158,36 @@ Because the Vercel project is already connected to GitHub:
 5. Save progress at any time.
 6. Tap **Finish shopping**.
 7. The purchase is saved to Transaction History and included in expense metrics.
+
+## Authentication security update
+
+This build adds:
+
+- 24-hour inactivity sign-out per browser/device
+- progressive browser-side cooldown after repeated invalid sign-in attempts
+- Supabase-matching sign-up password rules: at least 8 characters with lowercase, uppercase, a number, and a symbol
+- hCaptcha for sign-in and sign-up
+- HTTPS-only production behavior (localhost and 127.0.0.1 remain available for development)
+- an email-confirmation dialog after account creation
+- an explicit absolute HTTPS redirect for Supabase confirmation emails
+- friendly handling for expired/invalid email confirmation links
+
+### Required Supabase URL Configuration
+
+In **Supabase → Authentication → URL Configuration**, use the full URL including `https://`:
+
+```text
+Site URL
+https://groceries-tracker-miks-n-clar.vercel.app
+
+Redirect URLs
+https://groceries-tracker-miks-n-clar.vercel.app/**
+```
+
+Do **not** enter only `groceries-tracker-miks-n-clar.vercel.app` without the `https://` scheme. A scheme-less Site URL can be interpreted as a relative path and may redirect confirmation links to your Supabase project domain instead of your Vercel app.
+
+`config.js` also contains `APP_URL` with the canonical production address. Keep it updated if the production domain changes.
+
+### HTTPS
+
+Vercel serves the app over HTTPS. This build also upgrades non-local HTTP visits to HTTPS in the browser and sends an HSTS header from `vercel.json`. HSTS is intentionally not used for localhost development.
