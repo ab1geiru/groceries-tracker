@@ -46,3 +46,58 @@ create policy "Users can delete own grocery transactions"
   for delete
   to authenticated
   using (auth.uid() = user_id);
+
+create table if not exists public.grocery_lists (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  list_name text not null,
+  planned_date date,
+  shopping_date date,
+  store_name text,
+  budget numeric(12,2),
+  status text not null default 'planned',
+  items jsonb not null default '[]'::jsonb,
+  transaction_id uuid references public.grocery_transactions(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  completed_at timestamptz,
+  constraint grocery_lists_items_is_array check (jsonb_typeof(items) = 'array'),
+  constraint grocery_lists_status_valid check (status in ('planned', 'shopping', 'completed')),
+  constraint grocery_lists_budget_nonnegative check (budget is null or budget >= 0)
+);
+
+create index if not exists grocery_lists_user_status_idx
+  on public.grocery_lists (user_id, status, planned_date);
+
+alter table public.grocery_lists enable row level security;
+
+drop policy if exists "Users can read own grocery lists" on public.grocery_lists;
+create policy "Users can read own grocery lists"
+  on public.grocery_lists
+  for select
+  to authenticated
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can create own grocery lists" on public.grocery_lists;
+create policy "Users can create own grocery lists"
+  on public.grocery_lists
+  for insert
+  to authenticated
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can update own grocery lists" on public.grocery_lists;
+create policy "Users can update own grocery lists"
+  on public.grocery_lists
+  for update
+  to authenticated
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can delete own grocery lists" on public.grocery_lists;
+create policy "Users can delete own grocery lists"
+  on public.grocery_lists
+  for delete
+  to authenticated
+  using (auth.uid() = user_id);
+
+notify pgrst, 'reload schema';

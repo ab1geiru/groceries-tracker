@@ -13,10 +13,14 @@ const supabaseClient = isConfigured && window.supabase
 
 const state = {
   transactions: [],
+  groceryLists: [],
   user: null,
   editingId: null,
   pendingDeleteId: null,
   expandedIds: new Set(),
+  editingListId: null,
+  pendingListDeleteId: null,
+  shoppingListId: null,
   authMode: "signin",
   loading: false,
 };
@@ -24,6 +28,10 @@ const state = {
 const el = {
   newTransactionBtn: document.querySelector("#newTransactionBtn"),
   emptyNewTransactionBtn: document.querySelector("#emptyNewTransactionBtn"),
+  newListBtn: document.querySelector("#newListBtn"),
+  sectionNewListBtn: document.querySelector("#sectionNewListBtn"),
+  emptyNewListBtn: document.querySelector("#emptyNewListBtn"),
+  mobileNewListBtn: document.querySelector("#mobileNewListBtn"),
   periodSelect: document.querySelector("#periodSelect"),
   specificMonthInput: document.querySelector("#specificMonthInput"),
   specificYearInput: document.querySelector("#specificYearInput"),
@@ -82,6 +90,43 @@ const el = {
   formItemCount: document.querySelector("#formItemCount"),
   footerGrandTotal: document.querySelector("#footerGrandTotal"),
   toastRegion: document.querySelector("#toastRegion"),
+  groceryListsList: document.querySelector("#groceryListsList"),
+  groceryListsEmptyState: document.querySelector("#groceryListsEmptyState"),
+  groceryListCount: document.querySelector("#groceryListCount"),
+  listSearchInput: document.querySelector("#listSearchInput"),
+  listStatusFilter: document.querySelector("#listStatusFilter"),
+  listDialog: document.querySelector("#listDialog"),
+  listForm: document.querySelector("#listForm"),
+  listDialogTitle: document.querySelector("#listDialogTitle"),
+  listName: document.querySelector("#listName"),
+  listPlannedDate: document.querySelector("#listPlannedDate"),
+  listStoreName: document.querySelector("#listStoreName"),
+  listBudget: document.querySelector("#listBudget"),
+  addListItemBtn: document.querySelector("#addListItemBtn"),
+  listItemsContainer: document.querySelector("#listItemsContainer"),
+  listItemRowTemplate: document.querySelector("#listItemRowTemplate"),
+  listFormMessage: document.querySelector("#listFormMessage"),
+  listEstimatedTotal: document.querySelector("#listEstimatedTotal"),
+  saveListBtn: document.querySelector("#saveListBtn"),
+  closeListDialogBtn: document.querySelector("#closeListDialogBtn"),
+  cancelListDialogBtn: document.querySelector("#cancelListDialogBtn"),
+  shoppingDialog: document.querySelector("#shoppingDialog"),
+  shoppingDialogTitle: document.querySelector("#shoppingDialogTitle"),
+  shoppingStoreLabel: document.querySelector("#shoppingStoreLabel"),
+  shoppingDate: document.querySelector("#shoppingDate"),
+  shoppingProgress: document.querySelector("#shoppingProgress"),
+  shoppingProgressBar: document.querySelector("#shoppingProgressBar"),
+  shoppingCartTotal: document.querySelector("#shoppingCartTotal"),
+  shoppingFooterTotal: document.querySelector("#shoppingFooterTotal"),
+  shoppingBudgetStatus: document.querySelector("#shoppingBudgetStatus"),
+  shoppingItemsContainer: document.querySelector("#shoppingItemsContainer"),
+  shoppingFormMessage: document.querySelector("#shoppingFormMessage"),
+  saveShoppingProgressBtn: document.querySelector("#saveShoppingProgressBtn"),
+  finishShoppingBtn: document.querySelector("#finishShoppingBtn"),
+  closeShoppingDialogBtn: document.querySelector("#closeShoppingDialogBtn"),
+  deleteListDialog: document.querySelector("#deleteListDialog"),
+  cancelDeleteListBtn: document.querySelector("#cancelDeleteListBtn"),
+  confirmDeleteListBtn: document.querySelector("#confirmDeleteListBtn"),
 };
 
 const moneyFormatter = new Intl.NumberFormat("en-PH", {
@@ -163,6 +208,9 @@ function updateAccountUI() {
   el.newTransactionBtn.disabled = !signedIn;
   el.emptyNewTransactionBtn.disabled = !signedIn;
   el.mobileNewTransactionBtn.disabled = !signedIn;
+  [el.newListBtn, el.sectionNewListBtn, el.emptyNewListBtn, el.mobileNewListBtn]
+    .filter(Boolean)
+    .forEach((button) => { button.disabled = !signedIn; });
   el.authBtnText.textContent = signedIn ? "Account" : "Sign in";
   el.authAvatar.textContent = signedIn ? (state.user.email?.trim()?.[0] || "A").toUpperCase() : "?";
   el.authBtn.classList.toggle("signed-in", signedIn);
@@ -779,8 +827,769 @@ async function signOut() {
   }
 }
 
+
+function makeItemId() {
+  return globalThis.crypto?.randomUUID?.() || `item-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function normalizeListItem(item = {}) {
+  const estimatedPrice = item.estimatedPrice === null || item.estimatedPrice === undefined || item.estimatedPrice === ""
+    ? null
+    : Number(item.estimatedPrice);
+  const actualPrice = item.actualPrice === null || item.actualPrice === undefined || item.actualPrice === ""
+    ? null
+    : Number(item.actualPrice);
+  return {
+    id: item.id || makeItemId(),
+    name: String(item.name || ""),
+    quantity: Number.isInteger(Number(item.quantity)) && Number(item.quantity) > 0 ? Number(item.quantity) : 1,
+    estimatedPrice: Number.isFinite(estimatedPrice) ? Number(estimatedPrice.toFixed(2)) : null,
+    actualPrice: Number.isFinite(actualPrice) ? Number(actualPrice.toFixed(2)) : null,
+    purchased: Boolean(item.purchased),
+    notes: String(item.notes || ""),
+  };
+}
+
+function listEstimatedTotal(list) {
+  return (list.items || []).reduce((sum, item) => {
+    const price = Number(item.estimatedPrice);
+    return sum + (Number.isFinite(price) ? price : 0) * (Number(item.quantity) || 0);
+  }, 0);
+}
+
+function listActualTotal(list) {
+  return (list.items || []).reduce((sum, item) => {
+    if (!item.purchased) return sum;
+    const price = Number(item.actualPrice);
+    return sum + (Number.isFinite(price) ? price : 0) * (Number(item.quantity) || 0);
+  }, 0);
+}
+
+function listProgress(list) {
+  const total = (list.items || []).length;
+  const purchased = (list.items || []).filter((item) => item.purchased).length;
+  return { purchased, total, percent: total ? Math.round((purchased / total) * 100) : 0 };
+}
+
+function statusLabel(status) {
+  if (status === "shopping") return "Shopping";
+  if (status === "completed") return "Completed";
+  return "Planned";
+}
+
+function renderGroceryLists() {
+  if (!el.groceryListsList) return;
+
+  if (!isConfigured) {
+    el.groceryListCount.textContent = "Database setup required";
+    el.groceryListsList.innerHTML = `<div class="setup-card"><strong>Run the updated <code>supabase.sql</code>.</strong>The grocery-list feature needs the new <code>grocery_lists</code> table and its Row Level Security policies.</div>`;
+    el.groceryListsEmptyState.hidden = true;
+    return;
+  }
+
+  if (!state.user) {
+    el.groceryListCount.textContent = "Sign in to use grocery lists";
+    el.groceryListsList.innerHTML = `<div class="empty-state compact-empty"><div class="empty-icon" aria-hidden="true">📝</div><h3>Your shopping plans sync too</h3><p>Sign in to create grocery lists that stay available on your phone and laptop.</p></div>`;
+    el.groceryListsEmptyState.hidden = true;
+    return;
+  }
+
+  if (state.loading) {
+    el.groceryListCount.textContent = "Loading grocery lists…";
+    el.groceryListsList.innerHTML = `
+      <div class="list-skeleton"></div>
+      <div class="list-skeleton"></div>`;
+    el.groceryListsEmptyState.hidden = true;
+    return;
+  }
+
+  const query = (el.listSearchInput?.value || "").trim().toLowerCase();
+  const filter = el.listStatusFilter?.value || "active";
+
+  let lists = state.groceryLists.filter((list) => {
+    if (filter === "active" && list.status === "completed") return false;
+    if (filter !== "active" && filter !== "all" && list.status !== filter) return false;
+    if (!query) return true;
+    return (list.name || "").toLowerCase().includes(query)
+      || (list.storeName || "").toLowerCase().includes(query)
+      || (list.items || []).some((item) => `${item.name} ${item.notes || ""}`.toLowerCase().includes(query));
+  });
+
+  lists = [...lists].sort((a, b) => {
+    const statusRank = { shopping: 0, planned: 1, completed: 2 };
+    const rankDiff = (statusRank[a.status] ?? 9) - (statusRank[b.status] ?? 9);
+    if (rankDiff) return rankDiff;
+    const aDate = a.plannedDate || a.createdAt?.slice(0, 10) || "";
+    const bDate = b.plannedDate || b.createdAt?.slice(0, 10) || "";
+    return aDate.localeCompare(bDate);
+  });
+
+  const activeCount = state.groceryLists.filter((list) => list.status !== "completed").length;
+  el.groceryListCount.textContent = `${activeCount} active list${activeCount === 1 ? "" : "s"} · ${state.groceryLists.length} total`;
+  el.groceryListsList.replaceChildren();
+
+  const noResults = !lists.length && state.groceryLists.length > 0;
+  el.groceryListsEmptyState.hidden = lists.length > 0 || noResults || state.groceryLists.length > 0;
+
+  if (!state.groceryLists.length) {
+    el.groceryListsEmptyState.hidden = false;
+    return;
+  }
+
+  if (noResults) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state compact-empty";
+    empty.innerHTML = `<div class="empty-icon" aria-hidden="true">⌕</div><h3>No matching grocery lists</h3><p>Try another search term or status filter.</p>`;
+    el.groceryListsList.append(empty);
+    return;
+  }
+
+  lists.forEach((list) => {
+    const progress = listProgress(list);
+    const estimated = listEstimatedTotal(list);
+    const actual = listActualTotal(list);
+    const card = document.createElement("article");
+    card.className = `grocery-list-card status-${list.status}`;
+
+    const dateText = list.plannedDate
+      ? dateFormatter.format(localDateFromISO(list.plannedDate))
+      : "No planned date";
+    const storeText = list.storeName || "Store not set";
+    const hasBudget = list.budget !== null && list.budget !== undefined && list.budget !== "";
+    const budget = hasBudget ? Number(list.budget) : null;
+
+    card.innerHTML = `
+      <div class="grocery-list-card-main">
+        <div class="list-card-topline">
+          <span class="status-pill status-${list.status}">${statusLabel(list.status)}</span>
+          <span class="list-date">${escapeHtml(dateText)}</span>
+        </div>
+        <h3>${escapeHtml(list.name || "Grocery list")}</h3>
+        <p class="list-store">${escapeHtml(storeText)}</p>
+        <div class="list-progress-row">
+          <div class="progress-track"><span style="width:${progress.percent}%"></span></div>
+          <strong>${progress.purchased}/${progress.total}</strong>
+        </div>
+        <div class="list-card-metrics">
+          <div><span>Estimated</span><strong>${formatMoney(estimated)}</strong></div>
+          <div><span>${list.status === "completed" ? "Spent" : "Current cart"}</span><strong>${formatMoney(actual)}</strong></div>
+          <div><span>Budget</span><strong>${hasBudget && Number.isFinite(budget) ? formatMoney(budget) : "—"}</strong></div>
+        </div>
+      </div>
+      <div class="grocery-list-card-actions"></div>`;
+
+    const actions = card.querySelector(".grocery-list-card-actions");
+
+    if (list.status !== "completed") {
+      const shopBtn = document.createElement("button");
+      shopBtn.className = "button button-primary button-small";
+      shopBtn.type = "button";
+      shopBtn.textContent = list.status === "shopping" ? "Continue shopping" : "Start shopping";
+      shopBtn.addEventListener("click", () => openShoppingMode(list.id));
+      actions.append(shopBtn);
+
+      const editBtn = document.createElement("button");
+      editBtn.className = "button button-ghost button-small";
+      editBtn.type = "button";
+      editBtn.textContent = "Edit plan";
+      editBtn.addEventListener("click", () => openListDialog(list.id));
+      actions.append(editBtn);
+    }
+
+    const duplicateBtn = document.createElement("button");
+    duplicateBtn.className = "link-button";
+    duplicateBtn.type = "button";
+    duplicateBtn.textContent = "Duplicate";
+    duplicateBtn.addEventListener("click", () => duplicateGroceryList(list.id));
+    actions.append(duplicateBtn);
+
+    const deleteBtn = document.createElement("button");
+    deleteBtn.className = "link-button link-button-danger";
+    deleteBtn.type = "button";
+    deleteBtn.textContent = "Delete";
+    deleteBtn.addEventListener("click", () => openDeleteListDialog(list.id));
+    actions.append(deleteBtn);
+
+    el.groceryListsList.append(card);
+  });
+}
+
+function addListItemRow(item = {}) {
+  const normalized = normalizeListItem(item);
+  const fragment = el.listItemRowTemplate.content.cloneNode(true);
+  const row = fragment.querySelector(".list-item-row");
+  row.dataset.itemId = normalized.id;
+
+  const nameInput = row.querySelector(".list-item-name");
+  const priceInput = row.querySelector(".list-item-estimated-price");
+  const quantityInput = row.querySelector(".list-item-quantity");
+  const notesInput = row.querySelector(".list-item-notes");
+  const removeBtn = row.querySelector(".remove-list-item-btn");
+
+  nameInput.value = normalized.name;
+  priceInput.value = normalized.estimatedPrice ?? "";
+  quantityInput.value = normalized.quantity;
+  notesInput.value = normalized.notes;
+
+  [priceInput, quantityInput].forEach((input) => input.addEventListener("input", updateListEstimatedTotal));
+  [nameInput, notesInput].forEach((input) => input.addEventListener("input", () => { el.listFormMessage.textContent = ""; }));
+  removeBtn.addEventListener("click", () => {
+    if (el.listItemsContainer.children.length === 1) {
+      nameInput.value = "";
+      priceInput.value = "";
+      quantityInput.value = 1;
+      notesInput.value = "";
+    } else {
+      row.remove();
+    }
+    updateListEstimatedTotal();
+  });
+
+  el.listItemsContainer.append(fragment);
+  updateListEstimatedTotal();
+}
+
+function updateListEstimatedTotal() {
+  let total = 0;
+  el.listItemsContainer.querySelectorAll(".list-item-row").forEach((row) => {
+    const price = Number(row.querySelector(".list-item-estimated-price").value);
+    const quantity = Number(row.querySelector(".list-item-quantity").value) || 0;
+    if (Number.isFinite(price) && price >= 0) total += price * quantity;
+  });
+  el.listEstimatedTotal.textContent = formatMoney(total);
+  el.listFormMessage.textContent = "";
+}
+
+function resetListForm() {
+  el.listForm.reset();
+  el.listItemsContainer.replaceChildren();
+  el.listName.value = "Grocery list";
+  el.listPlannedDate.value = todayISO();
+  el.listStoreName.value = "";
+  el.listBudget.value = "";
+  state.editingListId = null;
+  addListItemRow();
+  el.listFormMessage.textContent = "";
+}
+
+function openListDialog(id = null) {
+  if (!state.user) return openAuthDialog();
+  resetListForm();
+  state.editingListId = id;
+
+  if (id) {
+    const list = state.groceryLists.find((entry) => entry.id === id);
+    if (!list) return;
+    el.listDialogTitle.textContent = "Edit grocery list";
+    el.saveListBtn.textContent = "Update list";
+    el.listName.value = list.name || "Grocery list";
+    el.listPlannedDate.value = list.plannedDate || "";
+    el.listStoreName.value = list.storeName || "";
+    el.listBudget.value = list.budget ?? "";
+    el.listItemsContainer.replaceChildren();
+    list.items.forEach((item) => addListItemRow(item));
+  } else {
+    el.listDialogTitle.textContent = "New grocery list";
+    el.saveListBtn.textContent = "Save grocery list";
+  }
+
+  if (!el.listDialog.open) el.listDialog.showModal();
+  setTimeout(() => el.listName.focus(), 0);
+}
+
+function closeListDialog() {
+  if (el.listDialog.open) el.listDialog.close();
+}
+
+function collectListForm() {
+  const name = el.listName.value.trim();
+  const plannedDate = el.listPlannedDate.value || null;
+  const storeName = el.listStoreName.value.trim();
+  const budgetRaw = el.listBudget.value;
+  const budget = budgetRaw === "" ? null : Number(budgetRaw);
+
+  if (!name) {
+    el.listFormMessage.textContent = "Give this grocery list a name.";
+    el.listName.focus();
+    return null;
+  }
+  if (budgetRaw !== "" && (!Number.isFinite(budget) || budget < 0)) {
+    el.listFormMessage.textContent = "Budget must be ₱0.00 or higher.";
+    el.listBudget.focus();
+    return null;
+  }
+
+  const existingList = state.groceryLists.find((entry) => entry.id === state.editingListId);
+  const oldItemsById = new Map((existingList?.items || []).map((item) => [item.id, item]));
+  const items = [];
+
+  for (const row of el.listItemsContainer.querySelectorAll(".list-item-row")) {
+    const itemId = row.dataset.itemId || makeItemId();
+    const itemName = row.querySelector(".list-item-name").value.trim();
+    const priceRaw = row.querySelector(".list-item-estimated-price").value;
+    const quantity = Number(row.querySelector(".list-item-quantity").value);
+    const notes = row.querySelector(".list-item-notes").value.trim();
+    const fullyBlank = !itemName && priceRaw === "" && !notes;
+
+    if (fullyBlank && el.listItemsContainer.children.length > 1) continue;
+    if (!itemName) {
+      el.listFormMessage.textContent = "Enter a name for every list item.";
+      row.querySelector(".list-item-name").focus();
+      return null;
+    }
+    if (!Number.isInteger(quantity) || quantity < 1) {
+      el.listFormMessage.textContent = "Each item quantity must be a whole number of 1 or more.";
+      row.querySelector(".list-item-quantity").focus();
+      return null;
+    }
+
+    let estimatedPrice = null;
+    if (priceRaw !== "") {
+      estimatedPrice = Number(priceRaw);
+      if (!Number.isFinite(estimatedPrice) || estimatedPrice < 0) {
+        el.listFormMessage.textContent = "Estimated prices must be ₱0.00 or higher.";
+        row.querySelector(".list-item-estimated-price").focus();
+        return null;
+      }
+      estimatedPrice = Number(estimatedPrice.toFixed(2));
+    }
+
+    const previous = oldItemsById.get(itemId);
+    items.push({
+      id: itemId,
+      name: itemName,
+      quantity,
+      estimatedPrice,
+      actualPrice: previous?.actualPrice ?? null,
+      purchased: previous?.purchased ?? false,
+      notes,
+    });
+  }
+
+  if (!items.length) {
+    el.listFormMessage.textContent = "Add at least one grocery item.";
+    return null;
+  }
+
+  return {
+    name,
+    plannedDate,
+    storeName,
+    budget: budget === null ? null : Number(budget.toFixed(2)),
+    items,
+  };
+}
+
+async function handleListSubmit(event) {
+  event.preventDefault();
+  if (!state.user || !supabaseClient) return;
+  const data = collectListForm();
+  if (!data) return;
+
+  el.saveListBtn.disabled = true;
+  el.saveListBtn.textContent = state.editingListId ? "Updating…" : "Saving…";
+
+  try {
+    if (state.editingListId) {
+      const { error } = await supabaseClient
+        .from("grocery_lists")
+        .update({
+          list_name: data.name,
+          planned_date: data.plannedDate,
+          store_name: data.storeName || null,
+          budget: data.budget,
+          items: data.items,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", state.editingListId);
+      if (error) throw error;
+    } else {
+      const { error } = await supabaseClient.from("grocery_lists").insert({
+        user_id: state.user.id,
+        list_name: data.name,
+        planned_date: data.plannedDate,
+        store_name: data.storeName || null,
+        budget: data.budget,
+        status: "planned",
+        items: data.items,
+      });
+      if (error) throw error;
+    }
+
+    const wasEditing = Boolean(state.editingListId);
+    closeListDialog();
+    await loadGroceryLists();
+    showToast(wasEditing ? "Grocery list updated and synced." : "Grocery list saved and synced.");
+  } catch (error) {
+    el.listFormMessage.textContent = error.message || "Could not save this grocery list.";
+    showToast(el.listFormMessage.textContent, "error");
+  } finally {
+    el.saveListBtn.disabled = false;
+    el.saveListBtn.textContent = state.editingListId ? "Update list" : "Save grocery list";
+  }
+}
+
+async function duplicateGroceryList(id) {
+  const list = state.groceryLists.find((entry) => entry.id === id);
+  if (!list || !state.user || !supabaseClient) return;
+  try {
+    const items = list.items.map((item) => ({
+      ...normalizeListItem(item),
+      id: makeItemId(),
+      purchased: false,
+      actualPrice: null,
+    }));
+    const { error } = await supabaseClient.from("grocery_lists").insert({
+      user_id: state.user.id,
+      list_name: `${list.name || "Grocery list"} copy`,
+      planned_date: todayISO(),
+      shopping_date: null,
+      store_name: list.storeName || null,
+      budget: list.budget,
+      status: "planned",
+      items,
+    });
+    if (error) throw error;
+    await loadGroceryLists();
+    showToast("Grocery list duplicated.");
+  } catch (error) {
+    showToast(error.message || "Could not duplicate this list.", "error");
+  }
+}
+
+function openDeleteListDialog(id) {
+  state.pendingListDeleteId = id;
+  if (!el.deleteListDialog.open) el.deleteListDialog.showModal();
+}
+
+async function deletePendingList() {
+  if (!state.pendingListDeleteId || !state.user || !supabaseClient) return;
+  el.confirmDeleteListBtn.disabled = true;
+  el.confirmDeleteListBtn.textContent = "Deleting…";
+  try {
+    const { error } = await supabaseClient.from("grocery_lists").delete().eq("id", state.pendingListDeleteId);
+    if (error) throw error;
+    state.pendingListDeleteId = null;
+    el.deleteListDialog.close();
+    await loadGroceryLists();
+    showToast("Grocery list deleted.");
+  } catch (error) {
+    showToast(error.message || "Could not delete this grocery list.", "error");
+  } finally {
+    el.confirmDeleteListBtn.disabled = false;
+    el.confirmDeleteListBtn.textContent = "Delete list";
+  }
+}
+
+function buildShoppingItems(list) {
+  el.shoppingItemsContainer.replaceChildren();
+  list.items.forEach((rawItem) => {
+    const item = normalizeListItem(rawItem);
+    const card = document.createElement("article");
+    card.className = `shopping-item${item.purchased ? " purchased" : ""}`;
+    card.dataset.itemId = item.id;
+
+    const estimatedCopy = item.estimatedPrice === null
+      ? "No estimate"
+      : `${formatMoney(item.estimatedPrice)} est. / unit`;
+
+    card.innerHTML = `
+      <label class="shopping-check">
+        <input class="shopping-purchased" type="checkbox" ${item.purchased ? "checked" : ""} />
+        <span aria-hidden="true">✓</span>
+      </label>
+      <div class="shopping-item-copy">
+        <strong>${escapeHtml(item.name)}</strong>
+        <span>${escapeHtml(item.notes || estimatedCopy)}</span>
+        ${item.notes ? `<small>${escapeHtml(estimatedCopy)}</small>` : ""}
+      </div>
+      <label class="shopping-input">
+        <span>Qty</span>
+        <input class="shopping-quantity" type="number" min="1" step="1" inputmode="numeric" value="${item.quantity}" />
+      </label>
+      <label class="shopping-input actual-price-field">
+        <span>Actual price / unit</span>
+        <div class="money-field">
+          <span>₱</span>
+          <input class="shopping-actual-price" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00" value="${item.actualPrice ?? ""}" />
+        </div>
+      </label>
+      <div class="shopping-line-total">
+        <span>Subtotal</span>
+        <strong>₱0.00</strong>
+      </div>`;
+
+    const checkbox = card.querySelector(".shopping-purchased");
+    checkbox.addEventListener("change", () => {
+      card.classList.toggle("purchased", checkbox.checked);
+      updateShoppingSummary();
+    });
+    card.querySelector(".shopping-quantity").addEventListener("input", updateShoppingSummary);
+    card.querySelector(".shopping-actual-price").addEventListener("input", updateShoppingSummary);
+    el.shoppingItemsContainer.append(card);
+  });
+  updateShoppingSummary();
+}
+
+function collectShoppingState({ requirePrices = false } = {}) {
+  const items = [];
+  let firstProblem = null;
+  for (const card of el.shoppingItemsContainer.querySelectorAll(".shopping-item")) {
+    const originalList = state.groceryLists.find((entry) => entry.id === state.shoppingListId);
+    const original = originalList?.items.find((item) => item.id === card.dataset.itemId) || {};
+    const quantity = Number(card.querySelector(".shopping-quantity").value);
+    const actualRaw = card.querySelector(".shopping-actual-price").value;
+    const purchased = card.querySelector(".shopping-purchased").checked;
+
+    if (!Number.isInteger(quantity) || quantity < 1) {
+      firstProblem = firstProblem || { message: "Quantity must be a whole number of 1 or more.", input: card.querySelector(".shopping-quantity") };
+    }
+
+    let actualPrice = null;
+    if (actualRaw !== "") {
+      actualPrice = Number(actualRaw);
+      if (!Number.isFinite(actualPrice) || actualPrice < 0) {
+        firstProblem = firstProblem || { message: "Actual prices must be ₱0.00 or higher.", input: card.querySelector(".shopping-actual-price") };
+      } else {
+        actualPrice = Number(actualPrice.toFixed(2));
+      }
+    }
+
+    if (requirePrices && purchased && actualRaw === "") {
+      firstProblem = firstProblem || { message: "Enter the actual price for every item in your cart before finishing.", input: card.querySelector(".shopping-actual-price") };
+    }
+
+    items.push({
+      ...normalizeListItem(original),
+      id: card.dataset.itemId,
+      quantity: Number.isInteger(quantity) && quantity > 0 ? quantity : 1,
+      actualPrice,
+      purchased,
+    });
+  }
+
+  if (firstProblem) {
+    el.shoppingFormMessage.textContent = firstProblem.message;
+    firstProblem.input.focus();
+    return null;
+  }
+
+  if (requirePrices && !items.some((item) => item.purchased)) {
+    el.shoppingFormMessage.textContent = "Check at least one item that you purchased.";
+    return null;
+  }
+
+  return items;
+}
+
+function updateShoppingSummary() {
+  if (!state.shoppingListId) return;
+  const list = state.groceryLists.find((entry) => entry.id === state.shoppingListId);
+  if (!list) return;
+
+  let purchased = 0;
+  let total = 0;
+  let cart = 0;
+
+  el.shoppingItemsContainer.querySelectorAll(".shopping-item").forEach((card) => {
+    total += 1;
+    const isPurchased = card.querySelector(".shopping-purchased").checked;
+    const quantity = Number(card.querySelector(".shopping-quantity").value) || 0;
+    const actual = Number(card.querySelector(".shopping-actual-price").value);
+    const subtotal = isPurchased && Number.isFinite(actual) ? actual * quantity : 0;
+    if (isPurchased) purchased += 1;
+    cart += subtotal;
+    card.querySelector(".shopping-line-total strong").textContent = formatMoney(subtotal);
+  });
+
+  const percent = total ? Math.round((purchased / total) * 100) : 0;
+  el.shoppingProgress.textContent = `${purchased} / ${total}`;
+  el.shoppingProgressBar.style.width = `${percent}%`;
+  el.shoppingCartTotal.textContent = formatMoney(cart);
+  el.shoppingFooterTotal.textContent = formatMoney(cart);
+
+  const hasBudget = list.budget !== null && list.budget !== undefined && list.budget !== "";
+  const budget = hasBudget ? Number(list.budget) : null;
+  if (!hasBudget || !Number.isFinite(budget)) {
+    el.shoppingBudgetStatus.textContent = "No budget set";
+    el.shoppingBudgetStatus.className = "";
+  } else {
+    const remaining = budget - cart;
+    el.shoppingBudgetStatus.textContent = remaining >= 0
+      ? `${formatMoney(remaining)} remaining`
+      : `${formatMoney(Math.abs(remaining))} over budget`;
+    el.shoppingBudgetStatus.className = remaining >= 0 ? "budget-ok" : "budget-over";
+  }
+
+  el.shoppingFormMessage.textContent = "";
+}
+
+function openShoppingMode(id) {
+  if (!state.user) return openAuthDialog();
+  const list = state.groceryLists.find((entry) => entry.id === id);
+  if (!list || list.status === "completed") return;
+
+  state.shoppingListId = id;
+  el.shoppingDialogTitle.textContent = list.name || "Grocery list";
+  el.shoppingStoreLabel.textContent = list.storeName ? `Shopping at ${list.storeName}` : "Grocery store not set";
+  el.shoppingDate.value = list.shoppingDate || todayISO();
+  el.shoppingFormMessage.textContent = "";
+  buildShoppingItems(list);
+
+  if (!el.shoppingDialog.open) el.shoppingDialog.showModal();
+}
+
+function closeShoppingDialog() {
+  if (el.shoppingDialog.open) el.shoppingDialog.close();
+  state.shoppingListId = null;
+}
+
+async function saveShoppingProgress() {
+  const list = state.groceryLists.find((entry) => entry.id === state.shoppingListId);
+  if (!list || !state.user || !supabaseClient) return;
+  const items = collectShoppingState();
+  if (!items) return;
+  const shoppingDate = el.shoppingDate.value || todayISO();
+
+  el.saveShoppingProgressBtn.disabled = true;
+  el.saveShoppingProgressBtn.textContent = "Saving…";
+  try {
+    const { error } = await supabaseClient
+      .from("grocery_lists")
+      .update({
+        status: "shopping",
+        shopping_date: shoppingDate,
+        items,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", list.id);
+    if (error) throw error;
+    await loadGroceryLists();
+    const refreshed = state.groceryLists.find((entry) => entry.id === list.id);
+    if (refreshed) buildShoppingItems(refreshed);
+    showToast("Shopping progress saved.");
+  } catch (error) {
+    showToast(error.message || "Could not save shopping progress.", "error");
+  } finally {
+    el.saveShoppingProgressBtn.disabled = false;
+    el.saveShoppingProgressBtn.textContent = "Save progress";
+  }
+}
+
+async function finishShopping() {
+  const list = state.groceryLists.find((entry) => entry.id === state.shoppingListId);
+  if (!list || !state.user || !supabaseClient) return;
+  const items = collectShoppingState({ requirePrices: true });
+  if (!items) return;
+
+  const shoppingDate = el.shoppingDate.value;
+  if (!shoppingDate) {
+    el.shoppingFormMessage.textContent = "Choose the purchase date before finishing.";
+    el.shoppingDate.focus();
+    return;
+  }
+
+  const purchasedItems = items
+    .filter((item) => item.purchased)
+    .map((item) => ({
+      name: item.name,
+      price: Number(item.actualPrice ?? 0),
+      quantity: item.quantity,
+    }));
+
+  el.finishShoppingBtn.disabled = true;
+  el.saveShoppingProgressBtn.disabled = true;
+  el.finishShoppingBtn.textContent = "Finishing…";
+
+  try {
+    const { data: transaction, error: insertError } = await supabaseClient
+      .from("grocery_transactions")
+      .insert({
+        user_id: state.user.id,
+        transaction_date: shoppingDate,
+        store_name: list.storeName || null,
+        items: purchasedItems,
+      })
+      .select("id")
+      .single();
+    if (insertError) throw insertError;
+
+    const { error: listError } = await supabaseClient
+      .from("grocery_lists")
+      .update({
+        status: "completed",
+        shopping_date: shoppingDate,
+        items,
+        transaction_id: transaction.id,
+        completed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", list.id);
+    if (listError) throw listError;
+
+    closeShoppingDialog();
+    await loadCloudTransactions();
+    await loadGroceryLists();
+    showToast("Shopping finished. The purchase is now in Transaction History.");
+    document.querySelector("#historySection")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (error) {
+    el.shoppingFormMessage.textContent = error.message || "Could not finish this shopping trip.";
+    showToast(el.shoppingFormMessage.textContent, "error");
+  } finally {
+    el.finishShoppingBtn.disabled = false;
+    el.saveShoppingProgressBtn.disabled = false;
+    el.finishShoppingBtn.textContent = "Finish shopping";
+  }
+}
+
+async function loadGroceryLists() {
+  if (!state.user || !supabaseClient) {
+    state.groceryLists = [];
+    renderGroceryLists();
+    return;
+  }
+
+  state.loading = true;
+  updateAccountUI();
+  renderGroceryLists();
+
+  try {
+    const { data, error } = await supabaseClient
+      .from("grocery_lists")
+      .select("id, list_name, planned_date, shopping_date, store_name, budget, status, items, transaction_id, created_at, updated_at, completed_at")
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+
+    state.groceryLists = (data || []).map((row) => ({
+      id: row.id,
+      name: row.list_name,
+      plannedDate: row.planned_date,
+      shoppingDate: row.shopping_date,
+      storeName: row.store_name || "",
+      budget: row.budget === null ? null : Number(row.budget),
+      status: row.status || "planned",
+      items: Array.isArray(row.items) ? row.items.map(normalizeListItem) : [],
+      transactionId: row.transaction_id,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      completedAt: row.completed_at,
+    }));
+  } catch (error) {
+    console.error(error);
+    setSyncStatus("Sync error", "error");
+    showToast("Could not sync your grocery lists. Run the updated supabase.sql and try again.", "error");
+    state.groceryLists = [];
+  } finally {
+    state.loading = false;
+    updateAccountUI();
+    renderGroceryLists();
+  }
+}
+
+
 function renderAll() {
   renderMetrics();
+  renderGroceryLists();
   renderTransactions();
   updateAccountUI();
 }
@@ -796,18 +1605,28 @@ async function initAuth() {
   const { data } = await supabaseClient.auth.getSession();
   state.user = data.session?.user || null;
   updateAccountUI();
-  if (state.user) await loadCloudTransactions();
-  else renderAll();
+  if (state.user) {
+    await loadCloudTransactions();
+    await loadGroceryLists();
+  } else {
+    state.groceryLists = [];
+    renderAll();
+  }
 
   supabaseClient.auth.onAuthStateChange(async (_event, session) => {
     const previousUserId = state.user?.id;
     state.user = session?.user || null;
     if (state.user?.id !== previousUserId) {
       state.transactions = [];
+      state.groceryLists = [];
       state.expandedIds.clear();
       updateAccountUI();
-      if (state.user) await loadCloudTransactions();
-      else renderAll();
+      if (state.user) {
+        await loadCloudTransactions();
+        await loadGroceryLists();
+      } else {
+        renderAll();
+      }
     }
   });
 }
@@ -820,6 +1639,24 @@ function init() {
   el.newTransactionBtn.addEventListener("click", () => openTransactionDialog());
   el.mobileNewTransactionBtn.addEventListener("click", () => openTransactionDialog());
   el.emptyNewTransactionBtn.addEventListener("click", () => openTransactionDialog());
+
+  [el.newListBtn, el.sectionNewListBtn, el.emptyNewListBtn, el.mobileNewListBtn]
+    .filter(Boolean)
+    .forEach((button) => button.addEventListener("click", () => openListDialog()));
+  el.addListItemBtn.addEventListener("click", () => addListItemRow());
+  el.listForm.addEventListener("submit", handleListSubmit);
+  el.closeListDialogBtn.addEventListener("click", closeListDialog);
+  el.cancelListDialogBtn.addEventListener("click", closeListDialog);
+  el.listSearchInput.addEventListener("input", renderGroceryLists);
+  el.listStatusFilter.addEventListener("change", renderGroceryLists);
+  el.closeShoppingDialogBtn.addEventListener("click", closeShoppingDialog);
+  el.saveShoppingProgressBtn.addEventListener("click", saveShoppingProgress);
+  el.finishShoppingBtn.addEventListener("click", finishShopping);
+  el.cancelDeleteListBtn.addEventListener("click", () => {
+    state.pendingListDeleteId = null;
+    el.deleteListDialog.close();
+  });
+  el.confirmDeleteListBtn.addEventListener("click", deletePendingList);
   el.addItemBtn.addEventListener("click", () => addItemRow());
   el.closeDialogBtn.addEventListener("click", closeTransactionDialog);
   el.cancelDialogBtn.addEventListener("click", closeTransactionDialog);
@@ -853,6 +1690,19 @@ function init() {
       el.deleteDialog.close();
     }
   });
+  el.listDialog.addEventListener("click", (event) => {
+    if (event.target === el.listDialog) closeListDialog();
+  });
+  el.shoppingDialog.addEventListener("click", (event) => {
+    if (event.target === el.shoppingDialog) closeShoppingDialog();
+  });
+  el.deleteListDialog.addEventListener("click", (event) => {
+    if (event.target === el.deleteListDialog) {
+      state.pendingListDeleteId = null;
+      el.deleteListDialog.close();
+    }
+  });
+
   el.authDialog.addEventListener("click", (event) => {
     if (event.target === el.authDialog) el.authDialog.close();
   });

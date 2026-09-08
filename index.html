@@ -14,7 +14,7 @@
       <div>
         <p class="eyebrow">Personal expense tracker</p>
         <h1>Groceries Tracker</h1>
-        <p class="subtitle">Track each grocery run and see where your monthly budget goes.</p>
+        <p class="subtitle">Plan grocery trips, shop with a live checklist, and track where your monthly budget goes.</p>
       </div>
       <div class="header-actions">
         <div class="sync-status" id="syncStatus" aria-live="polite">
@@ -25,14 +25,23 @@
           <span class="account-avatar" id="authAvatar" aria-hidden="true">?</span>
           <span id="authBtnText">Sign in</span>
         </button>
-        <button class="button button-primary" id="newTransactionBtn" type="button" disabled>
-          <span aria-hidden="true">＋</span> New transaction
+        <button class="button button-primary" id="newListBtn" type="button" disabled>
+          <span aria-hidden="true">＋</span> New grocery list
+        </button>
+        <button class="button button-secondary" id="newTransactionBtn" type="button" disabled>
+          <span aria-hidden="true">＋</span> Add expense
         </button>
       </div>
     </header>
 
+    <nav class="app-nav" aria-label="Main sections">
+      <a href="#overviewSection">Overview</a>
+      <a href="#listsSection">Grocery lists</a>
+      <a href="#historySection">Transactions</a>
+    </nav>
+
     <main>
-      <section class="dashboard" aria-labelledby="dashboardHeading">
+      <section class="dashboard" id="overviewSection" aria-labelledby="dashboardHeading">
         <div class="section-heading dashboard-heading-row">
           <div>
             <p class="eyebrow">Overview</p>
@@ -95,7 +104,54 @@
         </div>
       </section>
 
-      <section class="history-section" aria-labelledby="historyHeading">
+
+      <section class="lists-section" id="listsSection" aria-labelledby="listsHeading">
+        <div class="section-heading lists-heading-row">
+          <div>
+            <p class="eyebrow">Plan & shop</p>
+            <h2 id="listsHeading">Grocery lists</h2>
+            <p class="section-meta" id="groceryListCount">No grocery lists yet</p>
+          </div>
+
+          <div class="lists-tools">
+            <label class="search-field">
+              <span class="sr-only">Search grocery lists</span>
+              <span aria-hidden="true">⌕</span>
+              <input id="listSearchInput" type="search" placeholder="Search list, item or store…" />
+            </label>
+            <select id="listStatusFilter" aria-label="Filter grocery lists">
+              <option value="active">Active lists</option>
+              <option value="planned">Planned</option>
+              <option value="shopping">Shopping</option>
+              <option value="completed">Completed</option>
+              <option value="all">All lists</option>
+            </select>
+            <button class="button button-primary button-small" id="sectionNewListBtn" type="button" disabled>＋ New list</button>
+          </div>
+        </div>
+
+        <div class="lists-intro">
+          <div>
+            <strong>Plan before you shop.</strong>
+            <span>Add what you need, estimate your budget, then switch to Shopping Mode inside the store.</span>
+          </div>
+          <span class="lists-flow" aria-hidden="true">Plan → Shop → Save as transaction</span>
+        </div>
+
+        <div id="groceryListsList" class="grocery-lists-list" aria-live="polite"></div>
+
+        <div id="groceryListsEmptyState" class="empty-state" hidden>
+          <div class="empty-icon" aria-hidden="true">📝</div>
+          <h3>No grocery lists yet</h3>
+          <p>Create a list before your next grocery run. You can check items off, enter actual prices, and turn the finished trip into a transaction automatically.</p>
+          <div class="empty-actions">
+            <button class="button button-primary" id="emptyNewListBtn" type="button" disabled>Create your first grocery list</button>
+            <span>Your lists sync securely across signed-in devices</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="history-section" id="historySection" aria-labelledby="historyHeading">
         <div class="section-heading history-heading-row">
           <div>
             <p class="eyebrow">Records</p>
@@ -170,6 +226,134 @@
       <div class="confirm-actions">
         <button class="button button-ghost" id="closeAccountBtn" type="button">Close</button>
         <button class="button button-danger" id="signOutBtn" type="button">Sign out</button>
+      </div>
+    </form>
+  </dialog>
+
+
+  <dialog id="listDialog" class="transaction-dialog list-dialog">
+    <form id="listForm" method="dialog" novalidate>
+      <div class="dialog-header">
+        <div>
+          <p class="eyebrow">Shopping plan</p>
+          <h2 id="listDialogTitle">New grocery list</h2>
+        </div>
+        <button class="icon-button" id="closeListDialogBtn" type="button" aria-label="Close">×</button>
+      </div>
+
+      <div class="list-meta-grid">
+        <label class="field">
+          <span>List name</span>
+          <input id="listName" type="text" maxlength="100" placeholder="e.g. Weekend groceries" required />
+        </label>
+        <label class="field">
+          <span>Planned date <small>(optional)</small></span>
+          <input id="listPlannedDate" type="date" />
+        </label>
+        <label class="field">
+          <span>Grocery store <small>(optional)</small></span>
+          <input id="listStoreName" type="text" maxlength="120" autocomplete="organization" placeholder="e.g. SM Supermarket" />
+        </label>
+        <label class="field">
+          <span>Budget <small>(optional)</small></span>
+          <div class="money-field">
+            <span>₱</span>
+            <input id="listBudget" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00" />
+          </div>
+        </label>
+      </div>
+
+      <div class="items-editor list-items-editor">
+        <div class="items-editor-heading">
+          <div>
+            <h3>Items to buy</h3>
+            <p>Estimated prices are optional. Add notes for brands, sizes, or alternatives.</p>
+          </div>
+          <button class="button button-secondary button-small" id="addListItemBtn" type="button">＋ Add item</button>
+        </div>
+
+        <div class="list-item-table-header" aria-hidden="true">
+          <span>Item</span>
+          <span>Est. price / unit</span>
+          <span>Qty</span>
+          <span>Notes</span>
+          <span></span>
+        </div>
+
+        <div id="listItemsContainer" class="list-items-container"></div>
+        <p class="form-message" id="listFormMessage" role="alert"></p>
+      </div>
+
+      <div class="dialog-footer sticky-dialog-footer">
+        <div class="footer-total">
+          <span>Estimated total</span>
+          <strong id="listEstimatedTotal">₱0.00</strong>
+        </div>
+        <div class="dialog-footer-actions">
+          <button class="button button-ghost" id="cancelListDialogBtn" type="button">Cancel</button>
+          <button class="button button-primary" id="saveListBtn" type="submit">Save grocery list</button>
+        </div>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="shoppingDialog" class="transaction-dialog shopping-dialog">
+    <form id="shoppingForm" method="dialog" novalidate>
+      <div class="dialog-header shopping-header">
+        <div>
+          <p class="eyebrow">Shopping mode</p>
+          <h2 id="shoppingDialogTitle">Grocery list</h2>
+          <p class="shopping-store" id="shoppingStoreLabel"></p>
+        </div>
+        <button class="icon-button" id="closeShoppingDialogBtn" type="button" aria-label="Close">×</button>
+      </div>
+
+      <div class="shopping-summary-grid">
+        <label class="field">
+          <span>Purchase date</span>
+          <input id="shoppingDate" type="date" required />
+        </label>
+        <div class="shopping-summary-card">
+          <span>Progress</span>
+          <strong id="shoppingProgress">0 / 0</strong>
+          <div class="progress-track"><span id="shoppingProgressBar"></span></div>
+        </div>
+        <div class="shopping-summary-card">
+          <span>Current cart</span>
+          <strong id="shoppingCartTotal">₱0.00</strong>
+          <small id="shoppingBudgetStatus">No budget set</small>
+        </div>
+      </div>
+
+      <div class="shopping-tip">
+        <span aria-hidden="true">✓</span>
+        <p>Check an item when it goes into your cart, then enter the actual price per unit. You can change the quantity if you buy more or less than planned.</p>
+      </div>
+
+      <div id="shoppingItemsContainer" class="shopping-items-container"></div>
+      <p class="form-message" id="shoppingFormMessage" role="alert"></p>
+
+      <div class="dialog-footer sticky-dialog-footer shopping-footer">
+        <div class="footer-total">
+          <span>Cart total</span>
+          <strong id="shoppingFooterTotal">₱0.00</strong>
+        </div>
+        <div class="dialog-footer-actions">
+          <button class="button button-secondary" id="saveShoppingProgressBtn" type="button">Save progress</button>
+          <button class="button button-primary" id="finishShoppingBtn" type="button">Finish shopping</button>
+        </div>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="deleteListDialog" class="confirm-dialog">
+    <form method="dialog">
+      <div class="confirm-icon" aria-hidden="true">!</div>
+      <h2>Delete grocery list?</h2>
+      <p>This removes the list from your account. Any transaction already created from a completed list will stay in Transaction History.</p>
+      <div class="confirm-actions">
+        <button class="button button-ghost" id="cancelDeleteListBtn" type="button">Cancel</button>
+        <button class="button button-danger" id="confirmDeleteListBtn" type="button">Delete list</button>
       </div>
     </form>
   </dialog>
@@ -249,12 +433,40 @@
     </form>
   </dialog>
 
-  <button class="mobile-fab" id="mobileNewTransactionBtn" type="button" aria-label="Create new transaction" disabled>
-    <span aria-hidden="true">＋</span>
-    <span>New</span>
-  </button>
+  <div class="mobile-action-dock" aria-label="Quick actions">
+    <button class="mobile-action mobile-action-primary" id="mobileNewListBtn" type="button" disabled>
+      <span aria-hidden="true">＋</span><span>List</span>
+    </button>
+    <button class="mobile-action mobile-action-secondary" id="mobileNewTransactionBtn" type="button" disabled>
+      <span aria-hidden="true">＋</span><span>Expense</span>
+    </button>
+  </div>
 
   <div class="toast-region" id="toastRegion" aria-live="polite" aria-atomic="true"></div>
+
+
+  <template id="listItemRowTemplate">
+    <div class="list-item-row">
+      <label class="item-field">
+        <span class="mobile-label">Item</span>
+        <input class="list-item-name" type="text" maxlength="80" placeholder="e.g. Rice" autocomplete="off" />
+      </label>
+      <label class="item-field list-price-field">
+        <span class="mobile-label">Est. price / unit</span>
+        <span class="peso-prefix">₱</span>
+        <input class="list-item-estimated-price" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Optional" />
+      </label>
+      <label class="item-field">
+        <span class="mobile-label">Qty</span>
+        <input class="list-item-quantity" type="number" min="1" step="1" inputmode="numeric" value="1" />
+      </label>
+      <label class="item-field">
+        <span class="mobile-label">Notes</span>
+        <input class="list-item-notes" type="text" maxlength="120" placeholder="Brand, size, alternative…" />
+      </label>
+      <button class="remove-list-item-btn" type="button" aria-label="Remove grocery list item">×</button>
+    </div>
+  </template>
 
   <template id="itemRowTemplate">
     <div class="item-row">

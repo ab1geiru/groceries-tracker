@@ -1,72 +1,126 @@
-# Groceries Tracker — UST Gold Cloud Sync Edition
+# Groceries Tracker — Grocery Lists + Shopping Mode
 
-A responsive grocery expense tracker using Philippine Peso (₱), Supabase authentication/database, and a static HTML/CSS/JavaScript frontend that can be deployed to Vercel.
+A responsive Philippine Peso (₱) grocery planner and expense tracker built with plain HTML, CSS, JavaScript, Supabase, and Vercel.
 
-## What changed
+## What this version adds
 
-This version stores transactions in Supabase instead of browser `localStorage`. Sign in with the same account on your phone and laptop and both devices will load the same grocery records.
+The app now supports the complete grocery workflow:
 
-The UI now uses a UST-inspired gold palette based on `#FFAF00`, and each transaction can optionally record the grocery store visited.
+1. **Plan** — create a grocery list before going to the store.
+2. **Shop** — open Shopping Mode, check items as they go into the cart, change quantities, and enter actual prices.
+3. **Finish** — convert the purchased items into a normal grocery transaction automatically.
+4. **Track** — the completed purchase appears in Transaction History and updates the monthly/yearly dashboard metrics.
+
+Grocery lists and transactions both sync through Supabase, so the same account can use them on a laptop, phone, or other device.
+
+## Grocery list features
+
+- List name
+- Optional planned date
+- Optional grocery store
+- Optional budget
+- Grocery item name
+- Quantity
+- Optional estimated price per unit
+- Optional notes such as brand, size, or alternatives
+- Planned / Shopping / Completed statuses
+- Search and status filtering
+- Duplicate and delete lists
+- Estimated total and current cart total
+- Budget remaining / over-budget feedback
+
+## Shopping Mode
+
+Shopping Mode is designed for use while walking around the store.
+
+For each item you can:
+
+- check it when it enters the cart
+- change the quantity
+- enter the actual price per unit
+- see the live item subtotal
+- see shopping progress
+- see the live cart total
+- compare the cart total with the planned budget
+- save progress and continue later on another device
+
+**Finish shopping** creates a row in `grocery_transactions` from the checked items and marks the grocery list as completed.
 
 ## Files
 
-- `index.html` — interface
-- `styles.css` — styling
-- `app.js` — app logic, authentication, and cloud database CRUD
-- `config.js` — your Supabase Project URL and anon/public key
-- `supabase.sql` — database table and Row Level Security policies
-- `vercel.json` — Vercel static deployment config
+- `index.html` — main interface
+- `styles.css` — UST-gold responsive styling
+- `app.js` — authentication, transactions, grocery lists, Shopping Mode, and Supabase CRUD
+- `config.js` — Supabase Project URL and publishable key
+- `supabase.sql` — database tables, indexes, and Row Level Security policies
+- `preview.html` — copy of the current interface for previewing
+- `vercel.json` — static Vercel configuration
 
-## 1. Create a free Supabase project
+## Supabase update required
 
-1. Go to Supabase and create a project.
-2. In the project dashboard, open **SQL Editor**.
-3. Paste the full contents of `supabase.sql` and run it.
+If your existing `grocery_transactions` table is already working, **do not delete it**.
 
-The SQL creates one table named `grocery_transactions` and enables Row Level Security. Each signed-in user can only read, create, update, or delete their own transactions.
+Open:
 
-## 2. Add your Supabase credentials
+**Supabase → SQL Editor**
 
-Open `config.js` and replace:
+Then run the full updated `supabase.sql`.
+
+The script uses `CREATE TABLE IF NOT EXISTS`, so your existing transaction table and transaction data are left in place. It creates the new `grocery_lists` table, enables Row Level Security, and adds policies so each signed-in user can only access their own lists.
+
+After running the SQL, refresh the app.
+
+The new table contains:
+
+- `id`
+- `user_id`
+- `list_name`
+- `planned_date`
+- `shopping_date`
+- `store_name`
+- `budget`
+- `status`
+- `items`
+- `transaction_id`
+- `created_at`
+- `updated_at`
+- `completed_at`
+
+## Supabase credentials
+
+`config.js` should contain only your browser-safe Project URL and publishable key:
 
 ```js
-SUPABASE_URL: "YOUR_SUPABASE_URL",
-SUPABASE_ANON_KEY: "YOUR_SUPABASE_ANON_KEY",
+window.GROCERIES_TRACKER_CONFIG = {
+  SUPABASE_URL: "https://YOUR-PROJECT.supabase.co",
+  SUPABASE_ANON_KEY: "sb_publishable_...",
+};
 ```
 
-with your project's **Project URL** and **anon/public key** from Supabase project settings/API settings.
+Never put a secret key, service-role key, database password, or Postgres connection string in frontend files.
 
-The anon/public key is intended for browser apps. Security comes from the RLS policies in `supabase.sql`. Never put the Supabase service-role key in this file.
+## Run locally
 
-## 3. Authentication settings
+Open the folder in VS Code and run `index.html` using Live Server.
 
-Supabase may require email confirmation for newly created users. If confirmation is enabled, the app will tell the user to confirm the email before signing in.
+An internet connection is required for Supabase authentication and sync.
 
-For production on Vercel, add your Vercel URL to the allowed Site URL / redirect URLs in Supabase Authentication URL settings.
+## Deploy updates
 
-## 4. Run locally
+Because the Vercel project is already connected to GitHub:
 
-Open the folder in VS Code and run `index.html` with Live Server.
+1. Replace/update the project files in VS Code.
+2. In GitHub Desktop, review the changes.
+3. Commit them, for example: `Add grocery lists and shopping mode`.
+4. Click **Push origin**.
+5. Vercel automatically deploys the new commit.
 
-Because Supabase is an HTTPS cloud service, an internet connection is required for login and database syncing.
+## Cross-device example
 
-## 5. Deploy to Vercel
-
-Push this folder to GitHub, import the repository in Vercel, and deploy it as a static site. There is no build command and no Python/Node server is required.
-
-## Cross-device behavior
-
-1. Create/sign in to an account on the laptop.
-2. Add a grocery transaction.
-3. Open the deployed tracker on your phone.
-4. Sign in with the same email/password.
-5. The same transaction appears there because both devices read the same Supabase database records.
-
-## Important
-
-The previous browser-only `localStorage` records are not automatically deleted. This cloud version treats Supabase as the source of truth after sign-in.
-
-
-## Grocery store field
-
-When creating or editing a transaction, you can enter the store name (for example, `SM Supermarket`, `Puregold`, or `Robinsons Supermarket`). The field is optional so older records remain valid. Store names are also searchable from Transaction History.
+1. Create a list on your laptop.
+2. Open the deployed site on your phone and sign in with the same account.
+3. Open the list in Shopping Mode.
+4. Check items and enter actual prices in the store.
+5. Save progress at any time.
+6. Tap **Finish shopping**.
+7. The purchase is saved to Transaction History and included in expense metrics.
