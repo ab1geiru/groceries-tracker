@@ -5,17 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#ffaf00" />
   <meta name="description" content="A simple Philippine peso grocery expense tracker." />
-  <title>Groceries Tracker Ph</title>
-  <link rel="icon" type="image/png" href="img/phoenix.png">
+  <title>Groceries Tracker</title>
+  <link rel="icon" type="image/png" href="img/phoenix-logo.png" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <div class="app-shell">
     <header class="topbar">
-      <div>
-        <p class="eyebrow">Personal expense tracker</p>
-        <h1>Groceries Tracker</h1>
-        <p class="subtitle">Plan grocery trips, shop with a live checklist, and track where your monthly budget goes.</p>
+      <div class="brand-block">
+        <h1 class="sr-only">Groceries Tracker</h1>
+        <a class="brand-logo-link" href="#overviewSection" aria-label="Groceries Tracker home">
+          <img class="brand-logo" src="img/groceries-tracker-transparent-logo.png" alt="Groceries Tracker" />
+        </a>
+        <p class="subtitle brand-subtitle">Plan grocery trips, shop with a live checklist, and track where your monthly budget goes.</p>
       </div>
       <div class="header-actions">
         <div class="sync-status" id="syncStatus" aria-live="polite">
