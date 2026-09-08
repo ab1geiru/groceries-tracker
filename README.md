@@ -1,4 +1,4 @@
-# Groceries Tracker — Grocery Lists + Shopping Mode
+# Groceries Tracker Ph — Grocery Lists + Shopping Mode
 
 A responsive Philippine Peso (₱) grocery planner and expense tracker built with plain HTML, CSS, JavaScript, Supabase, and Vercel.
 
