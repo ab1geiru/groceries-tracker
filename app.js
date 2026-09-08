@@ -1059,7 +1059,8 @@ async function handleAuthSubmit(event) {
   event.preventDefault();
   if (!supabaseClient || state.authSubmitting) return;
 
-  const email = el.authEmail.value.trim();
+  const email = el.authEmail.value.trim().toLowerCase();
+  el.authEmail.value = email;
   const password = el.authPassword.value;
 
   if (!email || !password) {
@@ -2110,6 +2111,15 @@ function init() {
 
   el.authBtn.addEventListener("click", () => state.user ? openAccountDialog() : openAuthDialog());
   el.authForm.addEventListener("submit", handleAuthSubmit);
+  el.authEmail.addEventListener("input", () => {
+    const start = el.authEmail.selectionStart;
+    const end = el.authEmail.selectionEnd;
+    const lowercaseEmail = el.authEmail.value.toLowerCase();
+    if (el.authEmail.value !== lowercaseEmail) {
+      el.authEmail.value = lowercaseEmail;
+      if (start !== null && end !== null) el.authEmail.setSelectionRange(start, end);
+    }
+  });
   el.authPassword.addEventListener("input", updatePasswordRequirements);
   el.authSwitchBtn.addEventListener("click", () => setAuthMode(state.authMode === "signin" ? "signup" : "signin"));
   el.closeAuthDialogBtn.addEventListener("click", () => el.authDialog.close());
