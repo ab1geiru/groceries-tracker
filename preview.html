@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#ffaf00" />
+  <meta name="description" content="A simple Philippine peso grocery expense tracker." />
+  <title>Groceries Tracker</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Personal expense tracker</p>
+        <h1>Groceries Tracker</h1>
+        <p class="subtitle">Track each grocery run and see where your monthly budget goes.</p>
+      </div>
+      <div class="header-actions">
+        <div class="sync-status" id="syncStatus" aria-live="polite">
+          <span class="sync-dot"></span>
+          <span id="syncStatusText">Checking cloud…</span>
+        </div>
+        <button class="button button-ghost account-button" id="authBtn" type="button" aria-label="Sign in">
+          <span class="account-avatar" id="authAvatar" aria-hidden="true">?</span>
+          <span id="authBtnText">Sign in</span>
+        </button>
+        <button class="button button-primary" id="newTransactionBtn" type="button" disabled>
+          <span aria-hidden="true">＋</span> New transaction
+        </button>
+      </div>
+    </header>
+
+    <main>
+      <section class="dashboard" aria-labelledby="dashboardHeading">
+        <div class="section-heading dashboard-heading-row">
+          <div>
+            <p class="eyebrow">Overview</p>
+            <h2 id="dashboardHeading">Expense summary</h2>
+          </div>
+
+          <div class="period-filter" aria-label="Expense period filter">
+            <label for="periodSelect">Period</label>
+            <select id="periodSelect">
+              <option value="this-month">This month</option>
+              <option value="last-month">Previous month</option>
+              <option value="specific-month">Specific month</option>
+              <option value="this-year">This year</option>
+              <option value="specific-year">Specific year</option>
+              <option value="all-time">All time</option>
+            </select>
+            <input id="specificMonthInput" type="month" aria-label="Choose month" hidden />
+            <input id="specificYearInput" type="number" min="2000" max="2100" step="1" aria-label="Choose year" hidden />
+          </div>
+        </div>
+
+        <div class="metrics-grid">
+          <article class="metric-card metric-card-highlight">
+            <div class="metric-label">Selected period</div>
+            <div class="metric-value" id="selectedPeriodTotal">₱0.00</div>
+            <div class="metric-meta" id="selectedPeriodLabel">This month</div>
+          </article>
+
+          <article class="metric-card">
+            <div class="metric-icon" aria-hidden="true">↗</div>
+            <div class="metric-label">This month</div>
+            <div class="metric-value" id="monthTotal">₱0.00</div>
+            <div class="metric-meta" id="monthComparison">No spending yet</div>
+          </article>
+
+          <article class="metric-card">
+            <div class="metric-icon" aria-hidden="true">◎</div>
+            <div class="metric-label">This year</div>
+            <div class="metric-value" id="yearTotal">₱0.00</div>
+            <div class="metric-meta" id="yearLabel">0 transactions</div>
+          </article>
+
+          <article class="metric-card">
+            <div class="metric-icon" aria-hidden="true">#</div>
+            <div class="metric-label">Transactions</div>
+            <div class="metric-value" id="transactionCount">0</div>
+            <div class="metric-meta" id="averageTransaction">₱0.00 average</div>
+          </article>
+        </div>
+
+        <div class="trend-panel" aria-labelledby="trendHeading">
+          <div class="trend-copy">
+            <div>
+              <p class="trend-kicker">Spending trend</p>
+              <h3 id="trendHeading">Last 6 months</h3>
+            </div>
+            <p id="trendSummary">₱18,050 over 6 months · ₱3,008 avg. active month</p>
+          </div>
+          <div class="trend-chart" id="trendChart" role="img" aria-label="Grocery spending over the last six months">
+<div class="trend-item"><div class="trend-value">₱2,100</div><div class="trend-track"><div class="trend-bar has-value" style="height:45%"></div></div><span>Apr</span></div>
+<div class="trend-item"><div class="trend-value">₱3,800</div><div class="trend-track"><div class="trend-bar has-value" style="height:80%"></div></div><span>May</span></div>
+<div class="trend-item"><div class="trend-value">₱2,900</div><div class="trend-track"><div class="trend-bar has-value" style="height:62%"></div></div><span>Jun</span></div>
+<div class="trend-item"><div class="trend-value">₱4,700</div><div class="trend-track"><div class="trend-bar has-value" style="height:100%"></div></div><span>Jul</span></div>
+<div class="trend-item"><div class="trend-value">₱3,300</div><div class="trend-track"><div class="trend-bar has-value" style="height:70%"></div></div><span>Aug</span></div>
+<div class="trend-item"><div class="trend-value">₱1,250</div><div class="trend-track"><div class="trend-bar has-value" style="height:27%"></div></div><span>Sep</span></div>
+</div>
+        </div>
+      </section>
+
+      <section class="history-section" aria-labelledby="historyHeading">
+        <div class="section-heading history-heading-row">
+          <div>
+            <p class="eyebrow">Records</p>
+            <h2 id="historyHeading">Transaction history</h2>
+            <p class="section-meta" id="historyCount">No transactions yet</p>
+          </div>
+
+          <div class="history-tools">
+            <label class="search-field">
+              <span class="sr-only">Search transactions</span>
+              <span aria-hidden="true">⌕</span>
+              <input id="searchInput" type="search" placeholder="Search item or store…" />
+            </label>
+            <select id="sortSelect" aria-label="Sort transactions">
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
+              <option value="highest">Highest total</option>
+              <option value="lowest">Lowest total</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="transactionsList" class="transactions-list" aria-live="polite"></div>
+
+        <div id="emptyState" class="empty-state" hidden>
+          <div class="empty-icon" aria-hidden="true">🧺</div>
+          <h3>No grocery transactions yet</h3>
+          <p>Add your first grocery run and your dashboard will start showing trends automatically.</p>
+          <div class="empty-actions">
+            <button class="button button-primary" id="emptyNewTransactionBtn" type="button">Create first transaction</button>
+            <span>Synced securely to your account</span>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="authDialog" class="confirm-dialog auth-dialog">
+    <form id="authForm" method="dialog" novalidate>
+      <div class="dialog-header auth-dialog-header">
+        <div>
+          <p class="eyebrow">Cloud sync</p>
+          <h2 id="authDialogTitle">Sign in</h2>
+        </div>
+        <button class="icon-button" id="closeAuthDialogBtn" type="button" aria-label="Close">×</button>
+      </div>
+
+      <p class="auth-copy" id="authCopy">Sign in to access the same grocery data on your phone, laptop, and other devices.</p>
+
+      <label class="field auth-field">
+        <span>Email</span>
+        <input id="authEmail" type="email" autocomplete="email" placeholder="you@example.com" required />
+      </label>
+      <label class="field auth-field">
+        <span>Password</span>
+        <input id="authPassword" type="password" autocomplete="current-password" minlength="6" placeholder="At least 6 characters" required />
+      </label>
+
+      <p class="form-message auth-message" id="authMessage" role="alert"></p>
+
+      <button class="button button-primary auth-submit" id="authSubmitBtn" type="submit">Sign in</button>
+      <button class="link-button auth-switch" id="authSwitchBtn" type="button">Create an account instead</button>
+    </form>
+  </dialog>
+
+  <dialog id="accountDialog" class="confirm-dialog account-dialog">
+    <form method="dialog">
+      <div class="confirm-icon account-icon" aria-hidden="true">✓</div>
+      <h2>Account</h2>
+      <p id="accountEmail"></p>
+      <p class="account-note">Your grocery records are synced to this account.</p>
+      <div class="confirm-actions">
+        <button class="button button-ghost" id="closeAccountBtn" type="button">Close</button>
+        <button class="button button-danger" id="signOutBtn" type="button">Sign out</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="transactionDialog" class="transaction-dialog">
+    <form id="transactionForm" method="dialog" novalidate>
+      <div class="dialog-header">
+        <div>
+          <p class="eyebrow">Grocery record</p>
+          <h2 id="dialogTitle">New transaction</h2>
+        </div>
+        <button class="icon-button" id="closeDialogBtn" type="button" aria-label="Close">×</button>
+      </div>
+
+      <div class="transaction-meta-grid">
+        <label class="field">
+          <span>Transaction date</span>
+          <input id="transactionDate" type="date" required />
+          <small class="field-error" id="dateError"></small>
+        </label>
+        <label class="field store-field">
+          <span>Grocery store <small>(optional)</small></span>
+          <input id="storeName" type="text" maxlength="120" autocomplete="organization" placeholder="e.g. SM Supermarket" />
+        </label>
+        <div class="transaction-total-preview">
+          <div>
+            <span>Current total</span>
+            <small id="formItemCount">1 item</small>
+          </div>
+          <strong id="formGrandTotal">₱0.00</strong>
+        </div>
+      </div>
+
+      <div class="items-editor">
+        <div class="items-editor-heading">
+          <div>
+            <h3>Grocery items</h3>
+            <p>Enter the price per unit and the quantity purchased.</p>
+          </div>
+          <button class="button button-secondary button-small" id="addItemBtn" type="button">＋ Add item</button>
+        </div>
+
+        <div class="item-table-header" aria-hidden="true">
+          <span>Item</span>
+          <span>Price / unit</span>
+          <span>Qty</span>
+          <span>Subtotal</span>
+          <span></span>
+        </div>
+
+        <div id="itemsContainer" class="items-container"></div>
+        <p class="form-message" id="formMessage" role="alert"></p>
+      </div>
+
+      <div class="dialog-footer sticky-dialog-footer">
+        <div class="footer-total" aria-live="polite">
+          <span>Total</span>
+          <strong id="footerGrandTotal">₱0.00</strong>
+        </div>
+        <div class="dialog-footer-actions">
+          <button class="button button-ghost" id="cancelDialogBtn" type="button">Cancel</button>
+          <button class="button button-primary" id="saveTransactionBtn" type="submit">Save transaction</button>
+        </div>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="deleteDialog" class="confirm-dialog">
+    <form method="dialog">
+      <div class="confirm-icon" aria-hidden="true">!</div>
+      <h2>Delete transaction?</h2>
+      <p>This will permanently remove the transaction from your synced account.</p>
+      <div class="confirm-actions">
+        <button class="button button-ghost" id="cancelDeleteBtn" type="button">Cancel</button>
+        <button class="button button-danger" id="confirmDeleteBtn" type="button">Delete</button>
+      </div>
+    </form>
+  </dialog>
+
+  <button class="mobile-fab" id="mobileNewTransactionBtn" type="button" aria-label="Create new transaction" disabled>
+    <span aria-hidden="true">＋</span>
+    <span>New</span>
+  </button>
+
+  <div class="toast-region" id="toastRegion" aria-live="polite" aria-atomic="true"></div>
+
+  <template id="itemRowTemplate">
+    <div class="item-row">
+      <label class="item-field item-name-field">
+        <span class="mobile-label">Item</span>
+        <input class="item-name" type="text" maxlength="80" placeholder="e.g. Rice" autocomplete="off" />
+      </label>
+      <label class="item-field price-input-wrap">
+        <span class="mobile-label">Price / unit</span>
+        <span class="peso-prefix">₱</span>
+        <input class="item-price" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00" />
+      </label>
+      <label class="item-field">
+        <span class="mobile-label">Qty</span>
+        <input class="item-quantity" type="number" min="1" step="1" inputmode="numeric" value="1" />
+      </label>
+      <div class="item-subtotal-wrap">
+        <span class="mobile-label">Subtotal</span>
+        <strong class="item-subtotal">₱0.00</strong>
+      </div>
+      <button class="remove-item-btn" type="button" aria-label="Remove grocery item">×</button>
+    </div>
+  </template>
+
+</body>
+</html>
