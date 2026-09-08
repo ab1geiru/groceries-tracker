@@ -94,10 +94,44 @@ The new table contains:
 window.GROCERIES_TRACKER_CONFIG = {
   SUPABASE_URL: "https://YOUR-PROJECT.supabase.co",
   SUPABASE_ANON_KEY: "sb_publishable_...",
+  HCAPTCHA_SITE_KEY: "YOUR_HCAPTCHA_SITE_KEY",
 };
 ```
 
 Never put a secret key, service-role key, database password, or Postgres connection string in frontend files.
+
+
+## Authentication security
+
+This version adds four authentication protections on top of Supabase Auth:
+
+- **24-hour inactivity sign-out** — activity is tracked per browser/device in `localStorage`. If the signed-in browser has no activity for 24 hours, the app signs out that local session. The app also checks the stored timestamp when it is reopened.
+- **Progressive failed-login cooldown** — invalid credential attempts on the same browser trigger an increasing client-side cooldown: the 3rd failure waits 30 seconds, then 1 minute, 5 minutes, 15 minutes, 30 minutes, and finally 1 hour for later failures. The counter resets after a successful sign-in or after 24 hours without another recorded failure. This is an extra browser-side layer; keep Supabase Auth rate limits enabled because a determined attacker can bypass frontend-only controls.
+- **Password policy matching Supabase** — new accounts must use at least 8 characters and include lowercase, uppercase, a number, and a symbol. Existing users are not blocked from signing in solely because an older password does not match the newer signup policy.
+- **hCaptcha** — sign-in and sign-up both require an hCaptcha token, which is passed to Supabase Auth as `captchaToken`.
+
+### Configure hCaptcha
+
+1. Create an hCaptcha site for the production hostname, for example `groceries-tracker-miks-n-clar.vercel.app`.
+2. In **Supabase → Authentication → Attack Protection**, enable CAPTCHA protection, choose **hCaptcha**, and paste the hCaptcha **Secret** there.
+3. In `config.js`, replace:
+
+```js
+HCAPTCHA_SITE_KEY: "YOUR_HCAPTCHA_SITE_KEY",
+```
+
+with the public hCaptcha **Sitekey**.
+
+The hCaptcha Secret must never be placed in `config.js`, `app.js`, GitHub, or any other frontend file.
+
+### Supabase Email provider settings
+
+The frontend signup validator is designed to match these Supabase Email provider settings:
+
+- Minimum password length: **8**
+- Password requirements: **lowercase + uppercase + digits + symbols**
+
+Keep the same rules enabled in Supabase so the server remains the source of truth for password enforcement.
 
 ## Run locally
 

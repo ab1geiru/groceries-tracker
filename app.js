@@ -1,10 +1,22 @@
 const LEGACY_STORAGE_KEY = "groceries-tracker.transactions.v1";
+const LAST_ACTIVITY_STORAGE_KEY = "groceries-tracker.auth.last-activity.v1";
+const LOGIN_GUARD_STORAGE_KEY = "groceries-tracker.auth.login-guard.v1";
+const INACTIVITY_TIMEOUT_MS = 24 * 60 * 60 * 1000;
+const ACTIVITY_WRITE_THROTTLE_MS = 60 * 1000;
+const LOGIN_FAILURE_RESET_MS = 24 * 60 * 60 * 1000;
+// Browser-side progressive cooldown after repeated invalid credential attempts.
+// Supabase Auth rate limits remain the server-side protection and cannot be bypassed by editing this frontend.
+const LOGIN_COOLDOWN_STEPS_MS = [30_000, 60_000, 5 * 60_000, 15 * 60_000, 30 * 60_000, 60 * 60_000];
 const config = window.GROCERIES_TRACKER_CONFIG || {};
 const isConfigured = Boolean(
   config.SUPABASE_URL &&
   config.SUPABASE_ANON_KEY &&
   !config.SUPABASE_URL.includes("YOUR_") &&
   !config.SUPABASE_ANON_KEY.includes("YOUR_")
+);
+const isCaptchaConfigured = Boolean(
+  config.HCAPTCHA_SITE_KEY &&
+  !config.HCAPTCHA_SITE_KEY.includes("YOUR_")
 );
 
 const supabaseClient = isConfigured && window.supabase
@@ -22,6 +34,8 @@ const state = {
   pendingListDeleteId: null,
   shoppingListId: null,
   authMode: "signin",
+  authSubmitting: false,
+  captchaWidgetId: null,
   loading: false,
 };
 
@@ -76,6 +90,9 @@ const el = {
   authCopy: document.querySelector("#authCopy"),
   authEmail: document.querySelector("#authEmail"),
   authPassword: document.querySelector("#authPassword"),
+  passwordRequirements: document.querySelector("#passwordRequirements"),
+  hcaptchaContainer: document.querySelector("#hcaptchaContainer"),
+  captchaHelp: document.querySelector("#captchaHelp"),
   authMessage: document.querySelector("#authMessage"),
   authSubmitBtn: document.querySelector("#authSubmitBtn"),
   authSwitchBtn: document.querySelector("#authSwitchBtn"),
@@ -194,7 +211,16 @@ function showToast(message, type = "success") {
   const toast = document.createElement("div");
   toast.className = `toast toast-${type}`;
   toast.setAttribute("role", type === "error" ? "alert" : "status");
-  toast.innerHTML = `<span class="toast-icon" aria-hidden="true">${type === "error" ? "!" : "✓"}</span><span>${message}</span>`;
+
+  const icon = document.createElement("span");
+  icon.className = "toast-icon";
+  icon.setAttribute("aria-hidden", "true");
+  icon.textContent = type === "error" ? "!" : "✓";
+
+  const copy = document.createElement("span");
+  copy.textContent = String(message ?? "");
+
+  toast.append(icon, copy);
   el.toastRegion.append(toast);
   requestAnimationFrame(() => toast.classList.add("show"));
   setTimeout(() => {
@@ -747,6 +773,177 @@ async function loadCloudTransactions() {
   }
 }
 
+function getPasswordChecks(password) {
+  return {
+    length: password.length >= 8,
+    lowercase: /[a-z]/.test(password),
+    uppercase: /[A-Z]/.test(password),
+    digit: /\d/.test(password),
+    symbol: /[^A-Za-z0-9]/.test(password),
+  };
+}
+
+function passwordMeetsRequirements(password) {
+  return Object.values(getPasswordChecks(password)).every(Boolean);
+}
+
+function updatePasswordRequirements() {
+  if (!el.passwordRequirements) return;
+  const checks = getPasswordChecks(el.authPassword.value);
+  el.passwordRequirements.querySelectorAll("[data-password-rule]").forEach((item) => {
+    const passed = Boolean(checks[item.dataset.passwordRule]);
+    item.classList.toggle("met", passed);
+  });
+}
+
+function getLoginGuardState() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(LOGIN_GUARD_STORAGE_KEY) || "null");
+    if (!parsed || typeof parsed !== "object") return { failures: 0, lockoutUntil: 0, lastFailureAt: 0 };
+    if (parsed.lastFailureAt && Date.now() - parsed.lastFailureAt > LOGIN_FAILURE_RESET_MS) {
+      localStorage.removeItem(LOGIN_GUARD_STORAGE_KEY);
+      return { failures: 0, lockoutUntil: 0, lastFailureAt: 0 };
+    }
+    return {
+      failures: Math.max(0, Number(parsed.failures) || 0),
+      lockoutUntil: Math.max(0, Number(parsed.lockoutUntil) || 0),
+      lastFailureAt: Math.max(0, Number(parsed.lastFailureAt) || 0),
+    };
+  } catch {
+    localStorage.removeItem(LOGIN_GUARD_STORAGE_KEY);
+    return { failures: 0, lockoutUntil: 0, lastFailureAt: 0 };
+  }
+}
+
+function saveLoginGuardState(guard) {
+  localStorage.setItem(LOGIN_GUARD_STORAGE_KEY, JSON.stringify(guard));
+}
+
+function clearLoginGuard() {
+  localStorage.removeItem(LOGIN_GUARD_STORAGE_KEY);
+}
+
+function registerFailedLoginAttempt() {
+  const guard = getLoginGuardState();
+  guard.failures += 1;
+  guard.lastFailureAt = Date.now();
+
+  if (guard.failures >= 3) {
+    const stepIndex = Math.min(guard.failures - 3, LOGIN_COOLDOWN_STEPS_MS.length - 1);
+    guard.lockoutUntil = Date.now() + LOGIN_COOLDOWN_STEPS_MS[stepIndex];
+  } else {
+    guard.lockoutUntil = 0;
+  }
+
+  saveLoginGuardState(guard);
+  return guard;
+}
+
+function getRemainingLoginCooldownMs() {
+  const guard = getLoginGuardState();
+  return Math.max(0, guard.lockoutUntil - Date.now());
+}
+
+function formatCooldown(ms) {
+  const totalSeconds = Math.max(1, Math.ceil(ms / 1000));
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const minutes = Math.ceil(totalSeconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  return `${Math.ceil(minutes / 60)}h`;
+}
+
+let loginCooldownTimer = null;
+
+function stopLoginCooldownTimer() {
+  if (loginCooldownTimer) {
+    clearInterval(loginCooldownTimer);
+    loginCooldownTimer = null;
+  }
+}
+
+function syncAuthSubmitAvailability({ preserveMessage = false } = {}) {
+  stopLoginCooldownTimer();
+
+  if (state.authSubmitting) {
+    el.authSubmitBtn.disabled = true;
+    return;
+  }
+
+  if (state.authMode === "signup") {
+    el.authSubmitBtn.disabled = false;
+    el.authSubmitBtn.textContent = "Create account";
+    return;
+  }
+
+  const refresh = () => {
+    const remaining = getRemainingLoginCooldownMs();
+    if (remaining > 0) {
+      el.authSubmitBtn.disabled = true;
+      el.authSubmitBtn.textContent = `Try again in ${formatCooldown(remaining)}`;
+      el.authMessage.textContent = `Too many failed sign-in attempts on this browser. Try again in ${formatCooldown(remaining)}.`;
+      return;
+    }
+
+    stopLoginCooldownTimer();
+    el.authSubmitBtn.disabled = false;
+    el.authSubmitBtn.textContent = "Sign in";
+    if (!preserveMessage && el.authMessage.textContent.startsWith("Too many failed sign-in attempts")) {
+      el.authMessage.textContent = "You can try signing in again.";
+    }
+  };
+
+  refresh();
+  if (getRemainingLoginCooldownMs() > 0) {
+    loginCooldownTimer = setInterval(refresh, 1000);
+  }
+}
+
+function isInvalidCredentialError(error) {
+  const code = String(error?.code || "").toLowerCase();
+  const message = String(error?.message || "").toLowerCase();
+  return code === "invalid_credentials" || message.includes("invalid login credentials");
+}
+
+function resetCaptcha() {
+  if (state.captchaWidgetId === null || !window.hcaptcha?.reset) return;
+  try {
+    window.hcaptcha.reset(state.captchaWidgetId);
+  } catch (error) {
+    console.warn("Could not reset hCaptcha.", error);
+  }
+}
+
+function ensureCaptchaRendered() {
+  if (!el.hcaptchaContainer) return;
+
+  if (!isCaptchaConfigured) {
+    el.captchaHelp.textContent = "Captcha setup required: add your public hCaptcha sitekey to config.js.";
+    return;
+  }
+
+  el.captchaHelp.textContent = "";
+  if (!window.hcaptcha?.render || state.captchaWidgetId !== null) return;
+
+  try {
+    state.captchaWidgetId = window.hcaptcha.render(el.hcaptchaContainer, {
+      sitekey: config.HCAPTCHA_SITE_KEY,
+      theme: "light",
+    });
+  } catch (error) {
+    console.error("Could not render hCaptcha.", error);
+    el.captchaHelp.textContent = "Captcha could not load. Check your connection and hCaptcha site settings.";
+  }
+}
+
+function getCaptchaToken() {
+  if (!isCaptchaConfigured || state.captchaWidgetId === null || !window.hcaptcha?.getResponse) return "";
+  try {
+    return window.hcaptcha.getResponse(state.captchaWidgetId) || "";
+  } catch {
+    return "";
+  }
+}
+
 function setAuthMode(mode) {
   state.authMode = mode;
   const signingUp = mode === "signup";
@@ -754,10 +951,15 @@ function setAuthMode(mode) {
   el.authCopy.textContent = signingUp
     ? "Create an account so your grocery data can sync securely across your devices."
     : "Sign in to access the same grocery data on your phone, laptop, and other devices.";
-  el.authSubmitBtn.textContent = signingUp ? "Create account" : "Sign in";
   el.authSwitchBtn.textContent = signingUp ? "Already have an account? Sign in" : "Create an account instead";
   el.authPassword.autocomplete = signingUp ? "new-password" : "current-password";
+  el.authPassword.minLength = signingUp ? 8 : 1;
+  el.authPassword.placeholder = signingUp ? "8+ characters with upper/lowercase, number & symbol" : "Password";
+  el.passwordRequirements.hidden = !signingUp;
   el.authMessage.textContent = "";
+  updatePasswordRequirements();
+  resetCaptcha();
+  syncAuthSubmitAvailability();
 }
 
 function openAuthDialog() {
@@ -767,26 +969,63 @@ function openAuthDialog() {
   }
   setAuthMode("signin");
   el.authForm.reset();
+  updatePasswordRequirements();
   if (!el.authDialog.open) el.authDialog.showModal();
+  ensureCaptchaRendered();
+  syncAuthSubmitAvailability({ preserveMessage: true });
   setTimeout(() => el.authEmail.focus(), 0);
 }
 
 async function handleAuthSubmit(event) {
   event.preventDefault();
-  if (!supabaseClient) return;
+  if (!supabaseClient || state.authSubmitting) return;
+
   const email = el.authEmail.value.trim();
   const password = el.authPassword.value;
-  if (!email || password.length < 6) {
-    el.authMessage.textContent = "Enter a valid email and a password of at least 6 characters.";
+
+  if (!email || !password) {
+    el.authMessage.textContent = "Enter your email and password.";
     return;
   }
 
+  if (state.authMode === "signup" && !passwordMeetsRequirements(password)) {
+    el.authMessage.textContent = "Password must be at least 8 characters and include lowercase, uppercase, a number, and a symbol.";
+    updatePasswordRequirements();
+    return;
+  }
+
+  if (state.authMode === "signin") {
+    const remaining = getRemainingLoginCooldownMs();
+    if (remaining > 0) {
+      syncAuthSubmitAvailability();
+      return;
+    }
+  }
+
+  if (!isCaptchaConfigured) {
+    el.authMessage.textContent = "Captcha is not configured yet. Add HCAPTCHA_SITE_KEY to config.js.";
+    return;
+  }
+
+  ensureCaptchaRendered();
+  const captchaToken = getCaptchaToken();
+  if (!captchaToken) {
+    el.authMessage.textContent = "Complete the CAPTCHA before continuing.";
+    return;
+  }
+
+  state.authSubmitting = true;
   el.authSubmitBtn.disabled = true;
   el.authSubmitBtn.textContent = state.authMode === "signup" ? "Creating…" : "Signing in…";
   el.authMessage.textContent = "";
+
   try {
     if (state.authMode === "signup") {
-      const { data, error } = await supabaseClient.auth.signUp({ email, password });
+      const { data, error } = await supabaseClient.auth.signUp({
+        email,
+        password,
+        options: { captchaToken },
+      });
       if (error) throw error;
       if (!data.session) {
         el.authMessage.textContent = "Account created. Check your email to confirm it, then sign in.";
@@ -795,17 +1034,39 @@ async function handleAuthSubmit(event) {
         return;
       }
     } else {
-      const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+      const { error } = await supabaseClient.auth.signInWithPassword({
+        email,
+        password,
+        options: { captchaToken },
+      });
       if (error) throw error;
+      clearLoginGuard();
+      markUserActivity({ force: true });
     }
+
     el.authDialog.close();
     showToast(state.authMode === "signup" ? "Account created and signed in." : "Signed in successfully.");
   } catch (error) {
-    el.authMessage.textContent = error.message || "Authentication failed.";
+    if (state.authMode === "signin" && isInvalidCredentialError(error)) {
+      const guard = registerFailedLoginAttempt();
+      if (guard.lockoutUntil > Date.now()) {
+        syncAuthSubmitAvailability();
+      } else {
+        const remainingBeforeCooldown = Math.max(0, 3 - guard.failures);
+        el.authMessage.textContent = remainingBeforeCooldown
+          ? `Invalid email or password. ${remainingBeforeCooldown} failed attempt${remainingBeforeCooldown === 1 ? "" : "s"} before a cooldown starts.`
+          : "Invalid email or password.";
+      }
+    } else if (Number(error?.status) === 429 || String(error?.message || "").toLowerCase().includes("rate limit")) {
+      el.authMessage.textContent = "Too many authentication requests. Please wait and try again.";
+    } else {
+      el.authMessage.textContent = error.message || "Authentication failed.";
+    }
     showToast(el.authMessage.textContent, "error");
   } finally {
-    el.authSubmitBtn.disabled = false;
-    el.authSubmitBtn.textContent = state.authMode === "signup" ? "Create account" : "Sign in";
+    state.authSubmitting = false;
+    resetCaptcha();
+    syncAuthSubmitAvailability({ preserveMessage: true });
   }
 }
 
@@ -820,6 +1081,7 @@ async function signOut() {
   el.signOutBtn.disabled = true;
   try {
     await supabaseClient.auth.signOut();
+    localStorage.removeItem(LAST_ACTIVITY_STORAGE_KEY);
     el.accountDialog.close();
     showToast("Signed out successfully.");
   } finally {
@@ -827,6 +1089,72 @@ async function signOut() {
   }
 }
 
+let lastActivityWriteAt = 0;
+let inactivityCheckTimer = null;
+let autoLogoutInProgress = false;
+
+function getLastActivityAt() {
+  const value = Number(localStorage.getItem(LAST_ACTIVITY_STORAGE_KEY));
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function markUserActivity({ force = false } = {}) {
+  if (!state.user) return;
+  const now = Date.now();
+  if (!force && now - lastActivityWriteAt < ACTIVITY_WRITE_THROTTLE_MS) return;
+  lastActivityWriteAt = now;
+  localStorage.setItem(LAST_ACTIVITY_STORAGE_KEY, String(now));
+}
+
+async function enforceInactivityTimeout() {
+  if (!state.user || !supabaseClient || autoLogoutInProgress) return;
+  const lastActivityAt = getLastActivityAt();
+  if (!lastActivityAt) {
+    markUserActivity({ force: true });
+    return;
+  }
+  if (Date.now() - lastActivityAt < INACTIVITY_TIMEOUT_MS) return;
+
+  autoLogoutInProgress = true;
+  try {
+    await supabaseClient.auth.signOut({ scope: "local" });
+    localStorage.removeItem(LAST_ACTIVITY_STORAGE_KEY);
+    if (el.accountDialog.open) el.accountDialog.close();
+    if (el.authDialog.open) el.authDialog.close();
+    showToast("Signed out after 24 hours of inactivity. Please sign in again.", "error");
+  } catch (error) {
+    console.error("Automatic inactivity sign-out failed.", error);
+  } finally {
+    autoLogoutInProgress = false;
+  }
+}
+
+function startInactivityGuard() {
+  if (inactivityCheckTimer) return;
+
+  const activityEvents = ["pointerdown", "keydown", "touchstart", "scroll"];
+  activityEvents.forEach((eventName) => {
+    window.addEventListener(eventName, () => markUserActivity(), { passive: true });
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      enforceInactivityTimeout();
+      markUserActivity();
+    }
+  });
+
+  window.addEventListener("storage", (event) => {
+    if (event.key === LAST_ACTIVITY_STORAGE_KEY) {
+      lastActivityWriteAt = Number(event.newValue) || lastActivityWriteAt;
+    }
+    if (event.key === LOGIN_GUARD_STORAGE_KEY && el.authDialog.open) {
+      syncAuthSubmitAvailability({ preserveMessage: true });
+    }
+  });
+
+  inactivityCheckTimer = setInterval(enforceInactivityTimeout, 60_000);
+}
 
 function makeItemId() {
   return globalThis.crypto?.randomUUID?.() || `item-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -1604,6 +1932,19 @@ async function initAuth() {
   setSyncStatus("Checking session…", "loading");
   const { data } = await supabaseClient.auth.getSession();
   state.user = data.session?.user || null;
+
+  if (state.user) {
+    const lastActivityAt = getLastActivityAt();
+    if (lastActivityAt && Date.now() - lastActivityAt >= INACTIVITY_TIMEOUT_MS) {
+      await supabaseClient.auth.signOut({ scope: "local" });
+      localStorage.removeItem(LAST_ACTIVITY_STORAGE_KEY);
+      state.user = null;
+      showToast("Your previous session expired after 24 hours of inactivity. Please sign in again.", "error");
+    } else {
+      markUserActivity({ force: !lastActivityAt });
+    }
+  }
+
   updateAccountUI();
   if (state.user) {
     await loadCloudTransactions();
@@ -1617,6 +1958,8 @@ async function initAuth() {
     const previousUserId = state.user?.id;
     state.user = session?.user || null;
     if (state.user?.id !== previousUserId) {
+      if (state.user) markUserActivity({ force: true });
+      else localStorage.removeItem(LAST_ACTIVITY_STORAGE_KEY);
       state.transactions = [];
       state.groceryLists = [];
       state.expandedIds.clear();
@@ -1676,6 +2019,7 @@ function init() {
 
   el.authBtn.addEventListener("click", () => state.user ? openAccountDialog() : openAuthDialog());
   el.authForm.addEventListener("submit", handleAuthSubmit);
+  el.authPassword.addEventListener("input", updatePasswordRequirements);
   el.authSwitchBtn.addEventListener("click", () => setAuthMode(state.authMode === "signin" ? "signup" : "signin"));
   el.closeAuthDialogBtn.addEventListener("click", () => el.authDialog.close());
   el.closeAccountBtn.addEventListener("click", () => el.accountDialog.close());
@@ -1716,6 +2060,8 @@ function init() {
     console.info("Legacy local grocery data is still present in this browser. It has not been deleted.");
   }
 
+  window.addEventListener("hcaptcha-ready", ensureCaptchaRendered);
+  startInactivityGuard();
   renderAll();
   initAuth();
 }

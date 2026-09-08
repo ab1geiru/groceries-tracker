@@ -210,8 +210,24 @@
       </label>
       <label class="field auth-field">
         <span>Password</span>
-        <input id="authPassword" type="password" autocomplete="current-password" minlength="6" placeholder="At least 6 characters" required />
+        <input id="authPassword" type="password" autocomplete="current-password" placeholder="Password" required aria-describedby="passwordRequirements" />
       </label>
+
+      <div class="password-requirements" id="passwordRequirements" hidden>
+        <span>Password must include:</span>
+        <ul>
+          <li data-password-rule="length">At least 8 characters</li>
+          <li data-password-rule="lowercase">A lowercase letter</li>
+          <li data-password-rule="uppercase">An uppercase letter</li>
+          <li data-password-rule="digit">A number</li>
+          <li data-password-rule="symbol">A symbol</li>
+        </ul>
+      </div>
+
+      <div class="captcha-shell" aria-label="Bot protection">
+        <div id="hcaptchaContainer"></div>
+        <p class="captcha-help" id="captchaHelp"></p>
+      </div>
 
       <p class="form-message auth-message" id="authMessage" role="alert"></p>
 
@@ -225,7 +241,7 @@
       <div class="confirm-icon account-icon" aria-hidden="true">✓</div>
       <h2>Account</h2>
       <p id="accountEmail"></p>
-      <p class="account-note">Your grocery records are synced to this account.</p>
+      <p class="account-note">Your grocery records are synced to this account. For security, this device signs out after 24 hours without activity.</p>
       <div class="confirm-actions">
         <button class="button button-ghost" id="closeAccountBtn" type="button">Close</button>
         <button class="button button-danger" id="signOutBtn" type="button">Sign out</button>
@@ -494,6 +510,14 @@
     </div>
   </template>
 
+  <script>
+    window.__hcaptchaReady = false;
+    window.onHcaptchaLoad = function () {
+      window.__hcaptchaReady = true;
+      window.dispatchEvent(new Event("hcaptcha-ready"));
+    };
+  </script>
+  <script src="https://js.hcaptcha.com/1/api.js?onload=onHcaptchaLoad&render=explicit" async defer></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="config.js"></script>
   <script src="app.js"></script>

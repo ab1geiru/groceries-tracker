@@ -291,6 +291,28 @@ input:focus { border-color: #d69200; box-shadow: 0 0 0 4px rgba(255, 175, 0, .16
 .auth-copy { color: var(--muted); line-height: 1.55; margin-bottom: 22px; }
 .auth-field { margin-bottom: 14px; }
 .auth-field input { width: 100%; }
+.password-requirements {
+  margin: -4px 0 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-size: .76rem;
+  line-height: 1.45;
+}
+.password-requirements > span { display: block; margin-bottom: 7px; font-weight: 800; color: var(--muted-strong, var(--text)); }
+.password-requirements ul { margin: 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 5px 12px; list-style: none; }
+.password-requirements li::before { content: "○"; display: inline-block; width: 1.2em; color: var(--muted); font-weight: 900; }
+.password-requirements li.met { color: var(--success, #9a6700); }
+.password-requirements li.met::before { content: "✓"; color: var(--success, #9a6700); }
+.captcha-shell {
+  min-height: 78px;
+  margin: 4px 0 12px;
+  overflow-x: auto;
+}
+#hcaptchaContainer { min-height: 74px; }
+.captcha-help { margin: 5px 0 0; color: var(--danger); font-size: .75rem; line-height: 1.4; }
 .auth-message { min-height: 20px; margin: 4px 0 10px; }
 .auth-submit { width: 100%; }
 .auth-switch { display: block; margin: 10px auto 0; }
@@ -1350,4 +1372,9 @@ html { scroll-behavior: smooth; }
   .header-actions {
     transform: translateY(-10px);
   }
+}
+
+
+@media (max-width: 420px) {
+  .password-requirements ul { grid-template-columns: 1fr; }
 }
